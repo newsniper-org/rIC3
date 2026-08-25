@@ -3,3 +3,15 @@ build/
 ric3proj/
 .codex
 .antigravitycli
+
+**/*.py[cdo]
+.env
+.env.*
+
+# 벤치마크 산출물 (측정 결과는 docs/BASELINE.md 로 승격해 기록)
+bench/results/
+
+# 코퍼스 본체는 재다운로드 가능하므로 추적하지 않는다 (약 3.5GB).
+# 단 reference/ 는 840 케이스 목록과 CAV'25 아티팩트 결과이므로 반드시 추적한다.
+bench/corpus/*
+!bench/corpus/reference/
