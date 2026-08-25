@@ -60,10 +60,52 @@ The **bit-vector** track only; the array track is excluded.
 |---|---|---|---|---|
 |HWMCC'19|`fmv.jku.at/hwmcc19/hwmcc19-single-benchmarks.tar.xz`|317|317|312|
 |HWMCC'20|`fmv.jku.at/hwmcc20/hwmcc20benchmarks.tar.xz`|324|324|315|
-|HWMCC'24|Zenodo record **14156844**, `benchmarks_aiger.tar.gz`|319|—|—|
+|HWMCC'24|Zenodo record **14156844**|319|319|321|
 
 AIGER and btor2-bv counts match 1:1 within each archive, consistent with the
 bit-level set being a bit-blasting of the word-level bit-vector set.
+
+HWMCC'24 counts are confirmed by that record's own README ("319 in total" for
+both the bit-level and the word-level bit-vector track), and our extracted
+AIGER tree contains exactly 319 `.aig` files.
+
+**Beware the record number.** A web search for the HWMCC'24 benchmarks returns
+Zenodo record `14022830`, which is an unrelated entomology paper. The correct
+record is **14156844**; it was confirmed through the Zenodo API, not from
+search results.
+
+### 2.0 Archive integrity
+
+Verified before use. The Zenodo MD5s are published in that record's API
+response and all three matched byte-for-byte on download:
+
+|file|MD5|status|
+|---|---|---|
+|`benchmarks_aiger.tar.gz`|`c9ebe2eb88b836825265cdf2a31f9dd6`|matches Zenodo|
+|`benchmarks_btor2_bv.tar.gz`|`36c274ed7657680c639ab7107803f3fb`|matches Zenodo|
+|`benchmarks_btor2_array.tar.gz`|`221b982042d5fb6a226cdc600cd3f809`|matches Zenodo|
+
+The JKU archives publish no checksum, so these are our recorded values
+(SHA-256) for future comparison:
+
+|file|SHA-256|
+|---|---|
+|`hwmcc19-single-benchmarks.tar.xz`|`695e5964a7eb9fce1c18ee6b238594449b9599472e9a328e959c3e16c0446350`|
+|`hwmcc20benchmarks.tar.xz`|`f748b9634c9e08326b98203af8ab4880869e408f2e42f6e02f31f0c70731272a`|
+
+**Extraction state.** Only the AIGER trees are extracted, because the
+published `rIC3-ic3` baseline is an AIGER run. The word-level archives
+(`benchmarks_btor2_bv.tar.gz`, `benchmarks_btor2_array.tar.gz`) are downloaded
+and verified but left packed; extract them when word-level engines are
+measured. `bench/corpus/` is not tracked by git (~3.5 GB extracted); only
+`bench/corpus/reference/` is.
+
+**Unused ground truth.** Each HWMCC'24 track also ships a raw per-solver
+result CSV (`benchmark,solver,result,time_real,time_cpu,memory`; 2872 rows for
+the bit-level track, `ric3` among the entrants). Cross-solver agreement there
+gives an *absolute* verdict oracle, which is strictly stronger than the
+self-consistency check the release gate requires. Not wired in yet; worth doing
+before the cache layer can return a stored verdict.
 
 The de-duplication arithmetic closes exactly:
 
