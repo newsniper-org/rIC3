@@ -649,7 +649,18 @@ def capture_environment(repo: Path, binary: Path) -> dict:
         "git_upstream_merge_base": git_output(
             ["merge-base", "HEAD", "upstream/master"], repo
         ),
-        "git_dirty": bool(git_output(["status", "--porcelain"], repo)),
+        # Only *tracked* modifications make a measurement unattributable. An
+        # untracked local file (editor state, a workspace config directory) does
+        # not change what was built, and letting it raise the dirty flag would
+        # mean no measurement on a working machine is ever attributable.
+        # Untracked files are still counted, so the record is not silent.
+        "git_dirty": bool(
+            git_output(["status", "--porcelain", "--untracked-files=no"], repo)
+        ),
+        "git_untracked_count": len(
+            git_output(["ls-files", "--others", "--exclude-standard"], repo)
+            .splitlines()
+        ),
         "submodules": git_output(["submodule", "status"], repo).splitlines(),
         "binary": str(binary),
         "binary_version": tool_version([str(binary), "--version"]),
