@@ -106,7 +106,7 @@ hardware), not tuned away.
 |`Engine`/`TransysIf` churn breaks the wrapper|medium|rework|compile-time breakage is loud; cheaper than rebase conflicts|
 |Container image drifts under `:latest`|medium|certificate trust undermined|pin by `@sha256:`|
 |Spec-language subset not actually 1:1|unknown|premise collapses|round-trip gate answers it before any language work|
-|Host RAM 46 GB with 32 GB cap, no swap|medium|MO divergence|already observed 30.2 GB peaks; keep host otherwise idle|
+|Memory pressure: 46.4 GiB RAM, swap is zram with 27 GB already used, 32 GB cap|**high**|MO timings unusable; timing variance|compare MO *counts* not durations; keep host idle; no concurrent build|
 
 ---
 

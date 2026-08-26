@@ -400,15 +400,49 @@ Default trait methods panic:
 fn proof(&mut self) -> BlProof { panic!("unsupport proof"); }
 ```
 
-Not every engine produces an invariant (BMC does not), there is no
-`supports_proof() -> bool`, and `panic = "abort"` means it cannot be probed
-speculatively either. A middleware must therefore keep a **static capability
-whitelist per engine**, which silently rots when upstream adds an engine. The
-better fix is a capability query upstream, which is a decision outside this
-fork.
+Not every engine produces an invariant, there is no `supports_proof() -> bool`,
+and `panic = "abort"` means it cannot be probed speculatively either. A
+middleware must therefore keep a capability whitelist, which silently rots when
+upstream adds an engine. The better fix is a capability query upstream, which
+is a decision outside this fork.
 
 Related: `create_bl_engine` is not exhaustive (`_ => unreachable!()`);
 `Portfolio` and `PolyNexus` take separate paths and need special-casing.
+
+#### 6.4.1 Measured capability table
+
+Surveyed on the pinned tree. This is the whitelist a cache wrapper needs.
+
+|engine|trait|`proof()`|site|
+|---|---|---|---|
+|`IC3`|`BlEngine`|yes|`ic3/mod.rs:404`|
+|`Kind`|`BlEngine`|**conditional**|`kind.rs:219`|
+|`MultiProp`|`BlEngine`|yes|`mp/mod.rs:138`|
+|`Portfolio`|`BlEngine`|**conditional**|`portfolio/mod.rs:409`|
+|`PolyNexus`|—|yes|`polynexus/mod.rs`|
+|`CIllKind`|`BlEngine`|yes|`cli/cill/kind.rs:105`|
+|`WlKind`|`WlEngine`|yes|`wlkind.rs:136`|
+|`Cegar`|`WlEngine`|yes|`cegar/mod.rs:93`|
+|`BMC`|`BlEngine`|**no** — inherits `panic!`|`bmc.rs`|
+|`Rlive`|`BlEngine`|**no** — inherits `panic!`|`rlive/mod.rs`|
+|`WlBMC`|`WlEngine`|**no** — inherits `panic!`|`wlbmc.rs`|
+
+**The important finding: capability is not static, it is state-dependent.**
+Two engines advertise `proof()` and then refuse at call time:
+
+- `Kind::proof()` panics outright when `cfg.simple_path` is set — the body is
+  `error!("k-induction with simple path constraint not support certifaiger");
+  panic!();`. Note that `portfolio.toml` ships
+  `kind = "kind --step 1 --simple-path"`, so the *configured* worker is
+  precisely the failing case.
+- `Portfolio::proof()` panics with `"no proof available"` unless its stored
+  certificate is already `UNSAT`.
+
+So a whitelist keyed on engine type alone is insufficient; the key must be
+**(engine, configuration)**, and with `panic = "abort"` there is no recovery
+from getting it wrong. The narrowest safe start for the cache is therefore
+**`IC3` only**, widening per engine only once its refusal conditions have been
+enumerated the way these two were.
 
 ### 6.5 Sequencing
 

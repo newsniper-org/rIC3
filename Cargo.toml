@@ -61,5 +61,21 @@ lto = true
 panic = "abort"
 strip = true
 
+# Profiling profile for AGENTS.md §1.3, which requires `perf` self-time on
+# "release + debuginfo". [profile.release] sets strip = true, so perf sees no
+# symbols and the five-shape profile cannot be produced from it.
+#
+# lto and panic are inherited from release deliberately. LTO changes inlining,
+# so disabling it would make self-time attribution unrepresentative of the
+# build we actually ship. Any profile figure MUST be reported together with the
+# profile it was taken under.
+#
+# Build with: cargo build --profile profiling
+# Binary at:  target/profiling/ric3
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+
 # [profile.dev]
 # opt-level = 3

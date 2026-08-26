@@ -193,17 +193,33 @@ suspect — not the solver.
 |---|---|---|
 |CPU|AMD EPYC 7532 @ 2.4 GHz|AMD Ryzen 7 260 (Radeon 780M)|
 |OS|Ubuntu 24.10|Linux 7.0.9-1-cachyos-**rt**-bore|
-|RAM|(32 GB cap enforced)|46 GB total, **no swap**|
+|RAM|(32 GB cap enforced)|46.4 GiB total|
+|swap|—|46.4 GiB on **`/dev/zram0`** (compressed RAM), 27 GB already in use|
 |toolchain|—|rustc/cargo 1.96.0|
 
-Two environmental facts that must be quoted alongside any number from this
+Three environmental facts that must be quoted alongside any number from this
 file:
 
 - **`PREEMPT_RT` + BORE scheduler.** Not a typical HWMCC evaluation
   environment; expect wider timing variance than a stock server kernel.
-- **No swap.** With a 32 GB cap on a 46 GB machine, an instance approaching the
-  cap has no swap to fall back on. Combined with other resident workloads this
-  is a plausible source of MO divergence from the paper.
+- **Swap is zram, not a device.** `swapon --show` reports 46.4 GiB on
+  `/dev/zram0` at priority 100, with 27 GB already occupied. zram stores swap
+  pages *compressed in RAM*, so it is not additional memory — it buys only the
+  compression ratio, and it spends CPU on compress/decompress. An earlier
+  revision of this file recorded "no swap", which was wrong: the check used
+  `free | grep -i swap` on a Korean-locale host, where the row is labelled
+  "스  왑" and never matched. Verified via `/proc/meminfo` instead.
+- **The host is not idle.** 27 GB of swap in use before the run implies other
+  resident workloads (a `wavetensor-dev` container and the memory daemon were
+  observed). This inflates timings for memory-heavy instances.
+
+**Consequence for the memory-out cases.** Measured MO instances took an average
+of 2401 s (40 min) each, with peak RSS 24.7–30.2 GB against the 32 GB cap. On a
+128 GB machine such an instance would hit the cap and abort quickly; here it
+first has to fight zram compression for RAM. So **our MO wall-clock times are
+not comparable to the paper's**, even though the MO *classification* is (it is
+driven by `RLIMIT_AS`, which is independent of swap). Compare MO counts, not MO
+durations.
 
 ### 4.1 Measured run-to-run noise
 
