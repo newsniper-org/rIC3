@@ -15,3 +15,6 @@ bench/results/
 # 단 reference/ 는 840 케이스 목록과 CAV'25 아티팩트 결과이므로 반드시 추적한다.
 bench/corpus/*
 !bench/corpus/reference/
+
+# 왕복 게이트 crate 빌드 산출물
+bench/roundtrip/target/

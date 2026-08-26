@@ -1,0 +1,19 @@
+[package]
+name = "btor-roundtrip"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "BTOR2 parse/deparse round-trip fidelity gate for the rIC3 fork"
+
+# Deliberately depends only on `btor`, which pulls in `logicrs` and `giputils`
+# but NOT cadical/kissat/bitwuzla. That keeps this buildable without the C/C++
+# solver toolchain and cheap enough to compile while a measurement is running.
+[dependencies]
+btor = { path = "../../deps/btor-rs" }
+
+[[bin]]
+name = "btor-roundtrip"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 2

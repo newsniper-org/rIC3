@@ -220,6 +220,60 @@ Sequencing that follows from the above: build the **round-trip gate first**
 prototype with precision polymorphism alone, and add quantification,
 lexicographic order and contracts only when a consumer demands them.
 
+#### 1.3.6.1 The round-trip gate was built. It changed the plan.
+
+`bench/roundtrip` implements it (depends only on `btor`, so no C/C++ solver
+toolchain and cheap enough to compile beside a running measurement). Result
+over HWMCC'19's word-level bit-vector track:
+
+|outcome|count|share|
+|---|---|---|
+|instances|317|—|
+|raw text identical after one round trip|**10**|3 %|
+|raw differed, meaning preserved (commutative operand order)|**201**|63 %|
+|**differed after normalisation**|**106**|33 %|
+
+Every one of the 106 has an *identical* line count and an *identical* keyword
+histogram. So nothing is lost or invented — the representation is simply not
+canonical. Two distinct causes were isolated:
+
+1. **Commutative operand order.** `counter.btor` differed only in lines like
+   `16 eq 1 8 15` vs `16 eq 1 15 8`. Normalising commutative operands fixes
+   these 201 cases. The order tracks internal term interning order, which
+   depends on how many terms the process has already seen — stable within a
+   run (`giputils` pins `RandomState::with_seeds(0,0,0,0)`, verified: three
+   runs produced byte-identical output) but not across parse positions.
+2. **Node renumbering.** `fifo.btor` swapped two *independent* declarations:
+
+       149 concat 148 48 79      149 const  148 10
+       150 const  148 10    ->   150 concat 148 48 79
+
+   Line-local normalisation cannot repair this, because the node ids change and
+   every reference to them changes with it.
+
+**Consequence for the proposal.** The 1:1 claim **cannot be established
+textually.** Two routes remain:
+
+- **Verdict invariance** over the 840-case suite (plan item B5). This is the
+  operative gate, and the harness already computes it.
+- **A structural canonical form** — topological order plus content-derived
+  numbering — which would make textual comparison meaningful.
+
+The second route is *the same work* as the cache's content-derived atom
+identity (`docs/cache-design.md` §5.3, which independently specified "canonical
+child order for commutative nodes, sort by child hash"). That specification was
+written before this measurement and is now confirmed as necessary rather than
+precautionary.
+
+So the specification language and the cache need one shared piece of
+infrastructure. That is the third time in this document that two apparently
+unrelated concerns reduced to a single identity problem — the first two being
+lemma exchange (§1.3(3)) and corpus case naming (§5).
+
+**Status of this item:** the gate exists and is a useful diagnostic; it is
+*not* a pass/fail oracle for 1:1. Do not treat the 106 as failures of BTOR2
+fidelity — treat them as the measured size of the canonicalisation gap.
+
 ### 1.4 What would reopen this
 
 - The §1.3 profile shows representation/front-end work dominating rather than
