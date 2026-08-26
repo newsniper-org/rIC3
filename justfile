@@ -121,5 +121,17 @@ bench-compare RESULTS:
 #     just git status --short      ->  works
 # Trailing flags are fine because git takes a subcommand first, so `just`
 # never sees a leading `-` for this recipe.
+#
+# NOTE 2: quoting is NOT preserved. `{{ARGS}}` expands unquoted, so any
+# multi-word argument is split into separate words. Verified:
+#     just git commit -m "two words"
+#         -> git commit -m two words   -> "pathspec 'words' did not match"
+# Pass anything containing spaces on stdin instead. For commit messages:
+#     just git commit -q -F - <<'EOF'
+#     subject line
+#
+#     body
+#     EOF
+# This is why every commit in this repo uses `-F -` rather than `-m`.
 git *ARGS:
     SSH_ASKPASS=/usr/bin/ksshaskpass SSH_ASKPASS_REQUIRE=force git {{ARGS}}
