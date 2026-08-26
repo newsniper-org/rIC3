@@ -221,6 +221,45 @@ not comparable to the paper's**, even though the MO *classification* is (it is
 driven by `RLIMIT_AS`, which is independent of swap). Compare MO counts, not MO
 durations.
 
+### 4.0 Environment must be frozen for the duration of a run
+
+A 840-case run takes ~10 days, so the environment can drift under it. Any
+change to memory or swap configuration **mid-run** splits the measurement into
+two incomparable halves, and the harness records only one `environment.json`,
+taken at start.
+
+**Rule: do not change swap configuration while a scored run is in flight.**
+
+The specific case that prompted this: an additional swap partition on an
+external hard disk, to be enabled manually with `swapon`. Enabling it mid-run
+is more dangerous than it looks, and *not* in the obvious way:
+
+- The MO classification is unaffected — it is driven by `RLIMIT_AS`, which is
+  independent of swap. MO wall-clock times are already recorded as
+  incomparable, so extra slowness there costs nothing.
+- **The danger is borderline solved cases.** An instance finishing near the
+  3600 s limit that starts paging to a spinning external disk will cross the
+  limit and be scored as a timeout. Against a reference that solved it, that
+  registers as a **regression** — and `regressions = 0` is the release gate
+  (AGENTS.md §3.3). A false regression is indistinguishable from a real one
+  after the fact.
+
+So the failure mode is not "slower numbers", it is **a corrupted gate**.
+
+**If it must be enabled anyway** (e.g. to prevent an OOM kill from destroying
+ten days of work, which is the one case that justifies it):
+
+1. give it a priority *below* zram — zram is `PRIO 100`, so use something like
+   `swapon --priority 10 <dev>` — so it is only touched when zram is exhausted;
+2. record the wall-clock instant, and mark every case measured after it;
+3. re-measure those cases afterwards under the original configuration before
+   quoting any figure from them.
+
+**Preferred alternative.** zram occupancy was observed rising (27.0 → 28.1 GB)
+while `MemAvailable` sat at 30.9 GiB, driven by unrelated resident workloads.
+Reducing *those* is strictly better than adding slow swap: it lowers pressure
+without touching the timing model at all.
+
 ### 4.1 Measured run-to-run noise
 
 On `examples/fvbench/fifo.btor` (ic3, 4 repetitions, cold and warm):

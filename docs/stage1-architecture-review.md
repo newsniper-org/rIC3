@@ -107,6 +107,7 @@ hardware), not tuned away.
 |Container image drifts under `:latest`|medium|certificate trust undermined|pin by `@sha256:`|
 |Spec-language subset not actually 1:1|unknown|premise collapses|round-trip gate answers it before any language work|
 |Memory pressure: 46.4 GiB RAM, swap is zram with 27 GB already used, 32 GB cap|**high**|MO timings unusable; timing variance|compare MO *counts* not durations; keep host idle; no concurrent build|
+|Swap configuration changed mid-run (e.g. `swapon` of an external disk)|medium|**false regressions ⇒ corrupted gate**, not merely slower numbers|freeze environment for the run; if unavoidable use PRIO below zram's 100, record the instant, re-measure affected cases (see `docs/BASELINE.md` §4.0)|
 
 ---
 
