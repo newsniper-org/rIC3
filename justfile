@@ -104,3 +104,22 @@ bench-baseline OUT="bench/results/baseline":
 bench-compare RESULTS:
     uv run --python 3.14 bench/compare.py {{RESULTS}} \
         bench/corpus/reference/rIC3-ic3-cav25.txt
+
+
+# --- git via dev env ------------------------------------------------------
+
+# Run the git CLI with `.env.dev-git` applied, then forward all args verbatim.
+# `.env.dev-git` (gitignored) points SSH_ASKPASS at ksshaskpass so SSH
+# pushes/fetches prompt via the KDE dialog instead of failing on the absent
+# /usr/lib/ssh/ssh-askpass.  If the env file is missing, git still runs.
+#
+# Usage:  just git <git-args...>            e.g.  just git push origin main
+#
+# NOTE: do NOT insert `--`. `just` passes it through to git verbatim, which
+# then fails with "unknown option: --". Verified:
+#     just git -- status --short   ->  git -- status --short   ->  error
+#     just git status --short      ->  works
+# Trailing flags are fine because git takes a subcommand first, so `just`
+# never sees a leading `-` for this recipe.
+git *ARGS:
+    SSH_ASKPASS=/usr/bin/ksshaskpass SSH_ASKPASS_REQUIRE=force git {{ARGS}}
