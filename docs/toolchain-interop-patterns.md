@@ -1,0 +1,428 @@
+# Toolchain interop patterns — and why we are not adding an IR
+
+**Status:** DRAFT. Blocked on the §1.3 profile (the 840-case baseline run is in
+flight; see `docs/BASELINE.md`). Do not treat the conclusions as settled.
+**Created:** 2026-08-26. **Stage:** 1 (infrastructure), spanning 2–4.
+**Style:** per AGENTS.md §6, mirroring
+`portable-algebraic-aotjit/docs/algebraic-aotjit-codegen-rejected.md`.
+
+---
+
+## 0. What was proposed and what is concluded
+
+**Proposed:** introduce an IR language specialised for hardware verification,
+motivated by five separate concerns:
+
+1. vocabulary for ranking functions / liveness
+2. word-level information lost in bit-blasting
+3. exchange format for lemmas between engines
+4. targeting reprogrammable devices beyond FPGA (CPLD, CGRA, FPAA)
+5. splitting rIC3 into a front-end (a drop-in replacement for upstream) and a
+   middleware that drives back-ends
+
+**Concluded (provisionally):** none of the five requires a new IR. Four of them
+are already served by existing formats or are identifier/frequency problems in
+disguise. The fifth — the front-end/middleware split — is worth doing **on its
+own merits**, and does not need an IR either.
+
+What does need to be written down is the **discipline for wiring tools
+together**, because that recurs in every later stage while an IR would be built
+once. That discipline is §2–§7 of this document.
+
+---
+
+## 1. Why not an IR
+
+### 1.1 rIC3 already has three IR layers
+
+|layer|location|size|role|
+|---|---|---|---|
+|word-level terms|`logicrs::fol` (`Term`, `TermType`, `OpTerm`, `Sort`, `term_mgr`)|6,664 lines|BTOR2-class IR with hash-consing|
+|DAG / CNF|`logicrs::{DagCnf, cstdagcnf}`|part of 10,797|AIG and CNF encoding, BVA|
+|transition system|`TransysIf` trait; `Transys`, `TransysCtx`, `NoDepTransys`, `WlTransys`|3,737 lines|verification abstraction; `bitblast.rs` lowers|
+
+rIC3 proper is 17,219 lines and `logicrs` alone is 10,797. A fourth layer needs
+to justify itself against a base that is already more than half IR.
+
+### 1.2 Interop argues *against* a new IR
+
+The currency of interoperability is not our IR but **the formats the ecosystem
+already reads**. AIGER and BTOR2 are read by ABC, yosys, btor2tools, AVR, Pono,
+nuXmv, certifaiger and cerbtora. A new IR is read by us alone.
+
+This is not abstract. Two things were possible today *because* AIGER is
+standard: reusing the 840-case corpus unchanged, and diffing our results
+against the CAV'25 artifact's per-instance file. A bespoke IR forfeits both.
+
+### 1.3 The five concerns, resolved individually
+
+**(1) Ranking functions.** `fol::Sort` carries only `Bv(usize)` and
+`Array(i,e)`, but order lives in the operator layer, which already has `Ult`,
+`Ugt`, `Slt`, `Sgt`, `Add`, `Sub`, `Mul`, `Ite`, `Eq`, `Neq`. So "this measure
+decreases" is expressible today.
+
+More importantly, **`Bv(n)` is a finite domain, so well-foundedness is free.**
+The hard part of ranking functions in infinite-state systems is a descent with
+no floor; a bit-vector descent must terminate. A user-supplied rank therefore
+reduces to a *safety* property ("it decreases"), which existing IC3 checks.
+This lowers the stage-3 burden substantially.
+
+Two genuine gaps remain, and both are **annotation surface syntax**, not `fol`:
+
+- **No quantifiers.** SystemVerilog has none; CIll emulates with a symbolic
+  index and avoids `generate` because it replicates the assertion $W$ times.
+  A rank over an array or memory ("entries still pending") is awkward.
+- **No lexicographic ranks.** A tuple of measures with its ordering cannot be
+  expressed by the `h_`-prefix naming convention.
+
+**(2) Word-level information in bit-blasting.** Already preserved:
+
+```rust
+fn bitblast(&self) -> (Self, GHashMap<Term, TermVec>, GHashMap<Term, (Term, usize)>)
+```
+
+Both directions are returned — word→bits and bit→(term, bit position). On top
+of that, `WlTsSymbol` and `link_wts_by_symbol()` connect by declared symbol
+name, which is exactly what AGENTS.md §1.4(a) asks for ("prefer declared symbol
+names where they exist"). This is **an unconsumed mapping, not a loss**; the
+work is code that reads it.
+
+**(3) Lemma exchange.** Already implemented — `portfolio/lemma_mgr.rs`
+broadcasts all-to-all over `ipc_channel`. But the format is:
+
+```rust
+pub type LemmaIpcTx = IpcSender<(Option<usize>, LitVec)>;
+```
+
+`LitVec` is variable-number-based, i.e. **positional identity** — the thing
+AGENTS.md §1.4(a) forbids, and the same class as the
+`portable-algebraic-aotjit` §3.5.J drift (recorder wrote a content hash, replay
+indexed a pool position). So this is an *identifier* problem, not a format
+problem, and it is **the same problem stage 1's cache already has to solve**.
+Build content-derived atom identity once and both are served.
+
+Soundness is probably not at risk: IC3 admits foreign lemmas as candidates and
+keeps only those surviving relative induction, which is the §1.4(c) seeding
+argument. The likely cost is wasted exchange, i.e. a ceiling on sharing
+efficiency — worth measuring in stage 4 as "survival rate of received lemmas".
+
+**(4) Devices beyond FPGA.**
+
+|device|theoretical barrier|what it actually needs|
+|---|---|---|
+|CPLD|none|nothing; product-term macrocells are a synthesis/P&R concern, and RTL→netlist→AIGER is the same synchronous finite-state system|
+|CGRA|none|word-level reasoning (`wltransys`, `wl-*`, `cegar` exist) plus **quantification** over parameterised PE arrays — the same gap as (1). Configuration correctness is translation validation, reducible to a miter, which a safety checker handles|
+|FPAA|**yes**|a real-arithmetic decision procedure|
+
+The FPAA case is the load-bearing one, and it is worth stating the principle
+plainly:
+
+> **Changing the IR does not change what the decision procedure can decide.**
+> The IR fixes what is expressible; capability is fixed by the solver.
+
+Concretely: add `Sort::Real` and `bitblast()` cannot lower it, so no `DagCnf`
+is produced, so the SAT back-end receives nothing. The whole pipeline is
+vacuous. Continuous/hybrid verification is a different tool family (reachable
+set methods — Flow\*, CORA, SpaceEx; dReach; barrier certificates; Lyapunov
+functions). The IC3-flavoured precedent exists — IC3 Modulo Theories / HyComp,
+by the nuXmv authors — but it requires an LRA/NRA SMT back-end, so it is a
+**back-end replacement, not an IR addition**.
+
+Note also that the free lunch of §1.3(1) disappears here: in a continuous
+domain a descent need not terminate (1/2, 1/4, 1/8, …), so a floor and a
+convergence rate must be proven separately. The reason stage 3 looks cheap *is*
+finiteness.
+
+**(5) The front-end/middleware split.** See §6 — worth doing, no IR needed.
+
+### 1.4 What would reopen this
+
+- The §1.3 profile shows representation/front-end work dominating rather than
+  invariant derivation (AGENTS.md §1.3 explicitly warns against inheriting the
+  `portable-algebraic-aotjit` host's ~75% front-end finding — measure it).
+- A stage-3 design shows quantification and lexicographic order cannot be
+  carried by an annotation surface language over `fol`.
+- `Engine`/`TransysIf` prove too unstable across upstream rebases to wrap.
+
+---
+
+## 2. Pattern: the layer is chosen by exchange frequency, not by format
+
+rIC3 already spans five interop layers. They are not interchangeable; the
+selector is how often the boundary is crossed.
+
+|layer|used for|language reach|suited frequency|isolation|
+|---|---|---|---|---|
+|FFI (C ABI)|cadical, kissat, bitwuzla, aiger (all `build.rs` compile+link)|C-ABI languages only|microseconds|**none** — dies together|
+|process + IPC|`portfolio` (`ipc-channel`, `fork`)|Rust-leaning (bincode)|milliseconds|process|
+|subprocess + file|`Command::new("yosys")`|any|seconds|process|
+|container + file|`certifaiger_check`, `cerbtora_check` via `Command::new("docker")`, volume mounts, exit code|**any**|seconds|container **and licence**|
+|MCP (JSON-RPC)|`ric3_trace_tools` in `src/cli/trace.rs` (`rmcp`)|**any**|ms–seconds|process|
+
+**Measured consequence.** One fifo case produced `num_mic: 17882` in 9.65 s —
+about 1,850 lemmas/second. All-to-all across 16 workers is tens of thousands of
+messages per second. JSON-RPC and containers are impossible at that rate and
+bincode IPC is already a burden.
+
+AGENTS.md §5 rejected the `replay` layer on exactly this reasoning
+(microsecond-scale, hundreds of thousands to millions of events → pure
+overhead). The same conclusion applies to cross-language lemma sharing:
+**reduce the frequency first** (filtering, batching, quality thresholds); what
+survives is low-frequency and the existing layers already carry it.
+
+Rule of thumb, by boundary:
+
+|boundary|frequency|prescribed layer|
+|---|---|---|
+|contract exchange with another domain tool|once per refinement|BTOR2 `constraint` file, or MCP|
+|preprocessing / synthesis delegation|once per run|subprocess + file (already done)|
+|certificate validation|once per run|container + file (already done)|
+|lemma sharing|10³–10⁴/s|**redesign the frequency**, then FFI or shared-memory IPC|
+
+---
+
+## 3. Pattern: pin everything, by content
+
+An interop edge is reproducible only if the thing on the far side is pinned.
+Current state is inconsistent:
+
+|artifact|pinned by|status|
+|---|---|---|
+|upstream rIC3|commit SHA `7149d56…`|correct (`docs/UPSTREAM.md`)|
+|submodules|commit SHAs|correct|
+|HWMCC'24 archives|Zenodo MD5, verified|correct|
+|JKU archives|our recorded SHA-256|correct|
+|`ghcr.io/gipsyh/certifaiger`|image **tag**|**gap**|
+|`ghcr.io/gipsyh/cerbtora:latest`|`:latest` **tag**|**gap**|
+
+`--pull=never` is a good instinct — it forbids silent network drift — but a tag
+does not fix content. Certificate validation is slated to become the reason we
+trust a *cached* invariant, so this edge must be pinned by digest
+(`@sha256:…`). Cheap to fix; deferred until the baseline run completes because
+it changes behaviour.
+
+**Rule:** every external tool edge is pinned by content hash, and the hash is
+recorded in the doc that quotes results depending on it.
+
+---
+
+## 4. Pattern: isolation is a trust and licence boundary, not just a crash boundary
+
+Three forces push the same way:
+
+1. **`panic = "abort"`.** The release profile aborts on panic, so an
+   in-process tool's failed assertion kills the whole verification. Measured
+   today: a rejected flag combination (`cannot enable both dynamic and
+   drop-po`) surfaced as SIGABRT, indistinguishable by signal from an
+   allocation failure. C/C++ verification tools use internal asserts freely.
+2. **AGENTS.md §1.5** requires a corrupted cache entry to fall through to a
+   full run, "never a verdict and never a panic". With `panic = "abort"`,
+   `catch_unwind` is not available, so deserialisation must be total —
+   `Result`-returning, with no panicking indexing or `unwrap` on cache data.
+3. **Licence.** rIC3 is **GPL-3.0**. Linking propagates it, so an
+   academic non-commercial or proprietary tool cannot be *linked* and
+   redistributed. Process and container separation creates a separate-program
+   boundary. That certifaiger and cerbtora are containers is right on this axis
+   too. (`portable-algebraic-aotjit` is BSD-2-Clause-Patent, so absorption into
+   GPL is fine; the reverse is not.)
+
+**Rule:** a tool we do not control, or whose licence is not GPL-compatible,
+runs behind a process or container boundary — not linked.
+
+---
+
+## 5. Pattern: identity must be content-derived at every layer
+
+AGENTS.md §1.4(a) states this for cache atoms. It generalises, and the failures
+are cheap to reproduce. Three instances were hit in one day:
+
+|site|positional/naive key|failure|fix|
+|---|---|---|---|
+|case identifier|strip "text after last dot", applied twice|`93.c.aig` → `93.c` → `93`, 29 cases silently unmatched|strip only a known model extension; **idempotent**|
+|corpus paths|basename alone|HWMCC'24 ships two different models as `.../safe/x.aig` and `.../unsafe/x.aig`; 840 became 838|suffix aliases scoped to collisions *within one archive*|
+|path normalisation|`Path.resolve()`|resolved the alias back onto its target, alias vanished, 840 became 838 again|`abs_no_symlink()`|
+|lemma exchange|`LitVec` variable numbers|(open) different preprocessing per worker ⇒ different numbering|content-derived atom identity — same work as the cache|
+
+Note the shape: each failure was **silent and produced a plausible number**.
+That is the §3.5.J signature.
+
+**Rule:** identity is defined in exactly one function; every consumer imports
+it. Here that is `harness.instance_stem()`, imported by `compare.py` and
+`prepare_corpus.py`.
+
+---
+
+## 6. Pattern: wrap, do not fork — the front-end/middleware split
+
+The proposal is to split rIC3 into a front-end (drop-in replacement for
+upstream) and a middleware that drives back-ends. The structure already exists
+as trait boundaries:
+
+|layer|current location|contract|
+|---|---|---|
+|front-end|`src/cli/`, `src/frontend/{aig,btor}`|AIGER/BTOR2 files|
+|middleware|`src/portfolio/`, `src/polynexus/`, `src/mp/`|`create_bl_engine(cfg, ts, sym) -> Box<dyn BlEngine>`|
+|back-end|`src/ic3/`, `bmc.rs`, `kind.rs`, `rlive/`, `cegar/`, `wl*`|`Engine` / `BlEngine` / `WlEngine`|
+|solver|`src/gipsat/`, cadical/kissat/bitwuzla|FFI|
+
+`Engine` already carries nearly everything a middleware needs:
+
+```rust
+fn check(&mut self) -> McResult;                    // run + verdict
+fn proof(&mut self) -> BlProof;                     // the invariant to cache
+fn cex(&mut self) -> BlCex;
+fn certificate(&mut self, res) -> McBlCertificate;
+fn set_extractor(&mut self, Box<dyn ExtractorIf>);  // lemma-exchange hook
+fn add_tracer(&mut self, Box<dyn TracerIf>);
+fn get_ctrl(&self) -> Arc<dyn TerminateCtrl>;
+```
+
+### 6.1 The real payoff is rebase cost
+
+`src/lib.rs` exports everything (`pub mod ic3`, `pub trait Engine`,
+`pub fn create_bl_engine`), so **rIC3 can be consumed as a library**.
+
+AGENTS.md §1.1 requires `main` to track a *rebase* onto upstream, and every
+upstream rebase to carry a full benchmark re-run — which this baseline shows is
+roughly ten days of machine time. The more upstream source we edit, the more
+often we pay that. If our code lives beside upstream and depends on it, **the
+edit count is zero and rebasing degenerates to updating a pin.**
+
+§1.1 already mandates this discipline for another dependency: *"Do not vendor
+`portable-algebraic-aotjit`. Depend on it by git ref, pinned."* Applying the
+same rule to rIC3 itself is consistent, not novel.
+
+### 6.2 The gate already exists
+
+Architecture changes are usually hard to validate. Here "zero verdict changes
+across 840 cases" *is* the drop-in compatibility test, and `bench/compare.py`
+diffs per instance. This is an unusually favourable condition and argues for
+doing the split while that gate is fresh.
+
+### 6.3 Boundary formats already exist — no IR needed
+
+|boundary|existing format|evidence|
+|---|---|---|
+|front-end → middleware|AIGER / BTOR2|industry standard|
+|middleware → Rust back-end|`Transys`/`WlTransys` + `EngineConfig`|`Transys` derives `Serialize, Deserialize`|
+|middleware → foreign back-end|**BTOR2 round-trip**|`btor-rs/deparse.rs` can *write* BTOR2|
+
+### 6.4 Obstacle: no capability query
+
+Default trait methods panic:
+
+```rust
+fn proof(&mut self) -> BlProof { panic!("unsupport proof"); }
+```
+
+Not every engine produces an invariant (BMC does not), there is no
+`supports_proof() -> bool`, and `panic = "abort"` means it cannot be probed
+speculatively either. A middleware must therefore keep a **static capability
+whitelist per engine**, which silently rots when upstream adds an engine. The
+better fix is a capability query upstream, which is a decision outside this
+fork.
+
+Related: `create_bl_engine` is not exhaustive (`_ => unreachable!()`);
+`Portfolio` and `PolyNexus` take separate paths and need special-casing.
+
+### 6.5 Sequencing
+
+Build the **cache as a wrapper around `create_bl_engine`** and let the
+middleware grow out of it, rather than designing a middleware first:
+
+- **verdict licence** — consult the digest *before* the factory; on a hit
+  return `McResult` without constructing an engine
+- **seed licence** — inject stored lemmas into `ts`, then call the factory
+- **store** — `proof() -> BlProof` is the artifact
+
+Only the boundaries an actual consumer demands get built.
+
+---
+
+## 7. Pattern: cross-domain edges exchange contracts, not representations
+
+For a mixed-signal system — an FPAA tool alongside rIC3 — a shared IR would
+have to express both continuous dynamics and discrete transitions, and each
+tool would understand only its half: representation shared, reasoning not.
+A contract is agreed **only at the boundary** and each side keeps its own
+language.
+
+The rIC3 side of that boundary already exists in both directions:
+
+|direction|channel|evidence|
+|---|---|---|
+|receive assumptions|BTOR2 `constraint` node|`btor-rs` `parse.rs`/`deparse.rs` both ways; `ywb.rs` maps 1:1 to Yosys `assume`|
+|emit guarantees|proven invariant + `--cert`/`--certify`|certifaiger / cerbtora|
+|project onto boundary signals|`filter_map_var(Fn(Var) -> Option<Var>)`|`transys/certify.rs`|
+
+Measured: `fifo.btor` carries three `constraint` nodes in live use.
+
+### 7.1 Contract refinement is exactly the §1.4(d) licence
+
+Contract-based verification is iterative: the analog side narrows an
+assumption, which *adds a constraint* on the digital side. AGENTS.md §1.4(d):
+with $T' = T \wedge C$ and $T' \Rightarrow T$, a previously valid $\mathit{Inv}$
+still satisfies $\mathit{Inv} \wedge T' \Rightarrow \mathit{Inv}'$.
+
+So **every refinement round can reuse the previous invariant** — stage 1's
+cache directly accelerates a mixed-signal contract loop, the same shape as the
+"human adds one helper assertion per iteration" workflow in §0.
+
+### 7.2 Worked boundary: PLL radio
+
+|direction|signals|contract|checked by|
+|---|---|---|---|
+|D→A|frequency control word, divide ratio, charge-pump code, band select|"FCW always within $[a,b]$", "divide ratio in the valid set"|**rIC3** (safety)|
+|D→A|sigma-delta accumulator|"no overflow"|**rIC3** (word-level: `wl-*`, `cegar`)|
+|D→A|calibration FSM|"terminates"|**rIC3** (liveness → stage 3)|
+|A→D|`lock_detect`, divided clock|"FCW in $[a,b]$ ⇒ lock time < $T_{lock}$"|FPAA tool|
+|A→D|VCO frequency|"FCW in $[a,b]$ ⇒ $f_{VCO} \in [f_1,f_2]$"|FPAA tool|
+
+Two hard parts, both landing on this project's existing roadmap:
+
+- **Circular dependency.** The digital side assumes lock while the analog side
+  assumes FCW range. Closing that soundly needs a **well-founded argument over
+  time** (Abadi–Lamport-style composition) — the stage-3 tool.
+- **Time-scale mismatch.** Analog settling is µs–ms; the digital clock is ns.
+  Unrolling lock acquisition cycle-by-cycle explodes. AGENTS.md §1.3 names
+  "deep counter or timer (the k-induction killer; the stage-2 target)" as
+  profile shape #2 — a PLL divider and lock timeout counter are precisely that.
+  Mixed-signal interop independently strengthens the stage-2 motivation.
+
+### 7.3 What a contract must not promise
+
+Phase noise, jitter and spurs are spectral/statistical properties and are not
+formal-verification targets. Contracts carry only assertable properties —
+ranges, timing bounds. Blurring this puts unverifiable promises in a contract.
+
+### 7.4 A closer practical path
+
+Industry practice is Real Number Modeling: the analog block becomes a
+discrete-time SystemVerilog `real` model. `real` obstructs formal verification,
+but **quantised to fixed point it lands inside `Sort::Bv(n)`** — then rIC3
+checks the boundary contract directly, with no separate FPAA tool. The
+refinement loop has existing assets: `--abs-cst`, `--abs-trans`, and `cegar`'s
+multiplier UF abstraction.
+
+---
+
+## 8. Open items
+
+|item|action|blocked on|
+|---|---|---|
+|container pins|`@sha256:` digests for certifaiger/cerbtora|baseline run (behaviour change)|
+|lemma identity|content-derived atom identity; shared with the cache|stage 1 cache design|
+|lemma survival rate|instrument received-lemma acceptance in `portfolio`|stage 4|
+|capability query|whitelist now; consider an upstream PR for `supports_*`|—|
+|annotation surface language|quantification + lexicographic order over `fol`|stage 3 design|
+|`fol` sufficiency for ranks|confirm operator layer suffices|stage 3 design|
+
+---
+
+## 9. Reopening conditions
+
+This document is a draft. It becomes a decision record when the §1.3 profile
+lands and either confirms or refutes §1.4. Specifically, reopen the IR question
+if the profile shows representation cost dominating, if a stage-3 design cannot
+be carried by an annotation language over `fol`, or if `Engine`/`TransysIf`
+churn makes wrapping upstream more expensive than editing it.
