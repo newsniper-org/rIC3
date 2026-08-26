@@ -1,4 +1,4 @@
-# Toolchain interop patterns — and why we are not adding an IR
+# Toolchain interop patterns — and why an IR is the wrong unit
 
 **Status:** DRAFT. Blocked on the §1.3 profile (the 840-case baseline run is in
 flight; see `docs/BASELINE.md`). Do not treat the conclusions as settled.
@@ -10,8 +10,8 @@ flight; see `docs/BASELINE.md`). Do not treat the conclusions as settled.
 
 ## 0. What was proposed and what is concluded
 
-**Proposed:** introduce an IR language specialised for hardware verification,
-motivated by five separate concerns:
+**Proposed:** introduce a language specialised for hardware verification —
+initially described as an "IR" — motivated by six separate concerns:
 
 1. vocabulary for ranking functions / liveness
 2. word-level information lost in bit-blasting
@@ -19,15 +19,40 @@ motivated by five separate concerns:
 4. targeting reprogrammable devices beyond FPGA (CPLD, CGRA, FPAA)
 5. splitting rIC3 into a front-end (a drop-in replacement for upstream) and a
    middleware that drives back-ends
+6. handling jitter/noise **polymorphically**, in a language whose proper subset
+   corresponds 1:1 to the existing semantics
 
-**Concluded (provisionally):** none of the five requires a new IR. Four of them
-are already served by existing formats or are identifier/frequency problems in
-disguise. The fifth — the front-end/middleware split — is worth doing **on its
-own merits**, and does not need an IR either.
+### 0.1 Terminology: this is a specification language, not an IR
 
-What does need to be written down is the **discipline for wiring tools
-together**, because that recurs in every later stage while an IR would be built
-once. That discipline is §2–§7 of this document.
+The naming matters more than it looks, because it decides how much risk the
+proposal carries:
+
+|  |IR|specification language|
+|---|---|---|
+|position|internal representation, tool-to-tool exchange|user-facing input surface|
+|relation to verdict path|**in the middle of it**|an *addition* beside existing inputs|
+|release-gate exposure|maximal — every model flows through it|none, while existing AIGER/BTOR2 paths are untouched|
+
+Concerns 1, 4 and 6 are about **what a user can express**, so they are
+specification-language questions. Concerns 2, 3 and 5 are about internal
+representation and tool boundaries, and none of them wants a new format. The
+original framing conflated the two; the rest of this document keeps them apart.
+
+### 0.2 Conclusion
+
+**Concluded (provisionally):** no new *IR* is warranted. Concerns 2 and 3 are
+already served by existing mappings and are identifier problems in disguise;
+4 is barred by the decision procedure rather than by representation; 5 is worth
+doing on its own merits and needs no new format.
+
+Concerns 1 and 6 are **specification-language** questions and are not rejected.
+Concern 6 in particular carries its own gate — see §1.3(6) — and is the only
+part of the original proposal with a mechanically checkable soundness
+criterion. It is therefore the one to prototype first, behind that gate.
+
+What must be written down regardless is the **discipline for wiring tools
+together**, because that recurs in every later stage while a language would be
+built once. That discipline is §2–§7.
 
 ---
 
@@ -54,7 +79,7 @@ This is not abstract. Two things were possible today *because* AIGER is
 standard: reusing the 840-case corpus unchanged, and diffing our results
 against the CAV'25 artifact's per-instance file. A bespoke IR forfeits both.
 
-### 1.3 The five concerns, resolved individually
+### 1.3 The six concerns, resolved individually
 
 **(1) Ranking functions.** `fol::Sort` carries only `Bv(usize)` and
 `Array(i,e)`, but order lives in the operator layer, which already has `Ult`,
@@ -134,6 +159,66 @@ convergence rate must be proven separately. The reason stage 3 looks cheap *is*
 finiteness.
 
 **(5) The front-end/middleware split.** See §6 — worth doing, no IR needed.
+
+**(6) Jitter/noise, polymorphically, over a 1:1 proper subset.** This is the
+strongest form of the proposal and the only one that is *not* rejected here.
+
+The requirement "a proper subset corresponds 1:1 to the existing semantics" is
+a **conservative extension**: on sentences of the original language, the
+extended system proves exactly what the original proves. The hardware domain
+already has precedent for the shape — Verilog-AMS ⊃ Verilog, VHDL-AMS ⊃ VHDL.
+
+What makes it different from concerns 1–5 is that **it brings its own gate**.
+`btor-rs` exposes `Deparser::deparse(&Btor) -> String` plus a `Display` impl,
+so a round trip is already constructible:
+
+    BTOR2 --parse--> (subset representation) --deparse--> BTOR2'
+
+and the 1:1 claim becomes a measurable property: run the 840-case suite through
+the round trip and require **verdict invariance**, which `verdicts.json` and
+`bench/compare.py` already diff. Stronger still, check equivalence of original
+against round-tripped model with a miter. Wherever the round trip is not the
+identity is exactly where the subset boundary lies.
+
+So the verification frame can be built *before* the language is designed. This
+neutralises the objection that sank concerns 1–5 as IR candidates, namely that
+a new representation is the hardest possible thing to push through a
+"zero verdict changes" gate.
+
+**"Polymorphic" splits three ways, and only two are cheap:**
+
+|reading|example|needs|verdict|
+|---|---|---|---|
+|**nondeterminism**|"within ±10 ps, any value"|`input()` + `constraint()`|**already inside the subset** — expressible today|
+|**precision**|one model at 8/16/32-bit fixed point|parameterise $n$ in `Sort::Bv(n)`|**most valuable**; composes with `cegar`|
+|**probability**|"Gaussian distributed"|probabilistic model checking (PRISM, Storm)|different decision procedure → a §7 contract edge|
+
+The first row deserves emphasis: **abstracting jitter as interval
+nondeterminism puts it inside what rIC3 already decides.** This is how CDC
+verification models metastability. The gain is then *notation*, not capability
+— a legitimate goal for a language, but it must not be sold as new power.
+
+The second row is where real leverage sits. Real Number Modeling quantised to
+fixed point (§7.4) needs exactly precision polymorphism, and "start coarse,
+refine when the counterexample is spurious" is CEGAR — for which `cegar`
+already exists.
+
+**Mandatory soundness discipline.** The extension must compile to an
+**over-approximation only**. Widening jitter to nondeterminism keeps safety
+proofs sound and makes only counterexamples possibly spurious, which CEGAR
+handles. An under-approximation would make a *safety proof itself* unsound.
+This is the same class of prohibition as CIll's ban on `assume`, and if the
+type system can enforce the direction, it should.
+
+**Cost, stated honestly.** The cost of a language is not its grammar but its
+diagnostics and documentation — error messages, type checking, version
+compatibility, user education. CIll needs a 7.5 KB skill document for a
+convention as small as an `h_` prefix.
+
+Sequencing that follows from the above: build the **round-trip gate first**
+(cheap, language-agnostic, useful on its own as a BTOR2 fidelity check), then
+prototype with precision polymorphism alone, and add quantification,
+lexicographic order and contracts only when a consumer demands them.
 
 ### 1.4 What would reopen this
 
@@ -416,13 +501,23 @@ multiplier UF abstraction.
 |capability query|whitelist now; consider an upstream PR for `supports_*`|—|
 |annotation surface language|quantification + lexicographic order over `fol`|stage 3 design|
 |`fol` sufficiency for ranks|confirm operator layer suffices|stage 3 design|
+|**round-trip gate**|BTOR2 → parse → deparse → BTOR2, verdict invariance over 840|**buildable now**; language-agnostic|
+|precision polymorphism|parameterise `Sort::Bv(n)` in a spec-language prototype|round-trip gate|
+|over-approximation only|enforce widening direction in the extension|spec-language design|
 
 ---
 
 ## 9. Reopening conditions
 
 This document is a draft. It becomes a decision record when the §1.3 profile
-lands and either confirms or refutes §1.4. Specifically, reopen the IR question
-if the profile shows representation cost dominating, if a stage-3 design cannot
-be carried by an annotation language over `fol`, or if `Engine`/`TransysIf`
-churn makes wrapping upstream more expensive than editing it.
+lands and either confirms or refutes §1.4.
+
+Reopen the **IR** question if the profile shows representation cost dominating,
+or if `Engine`/`TransysIf` churn makes wrapping upstream more expensive than
+editing it.
+
+The **specification-language** question (§1.3(6)) is not closed and does not
+wait on the profile in the same way: its gate is the round trip, which can be
+built independently. Close it negatively only if the round trip cannot be made
+the identity on the 840-case suite — that would mean the intended subset is not
+actually 1:1, which is the whole premise.
