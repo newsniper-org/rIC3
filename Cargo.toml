@@ -12,6 +12,23 @@ license = "GPL-3.0"
 name = "ric3"
 path = "src/main.rs"
 
+[features]
+default = []
+
+# Let an external source inject candidate lemmas into IC3.
+#
+# Needed by the stage-1 cache's *seed* licence (AGENTS.md §1.4(b)): stored
+# invariant clauses must enter as candidates, and IC3 currently has no path for
+# that -- `Engine::set_extractor` defaults to a no-op and `BMC` is its only
+# implementor. See docs/cache-design.md §4.2.
+#
+# Off by default per AGENTS.md §6: "Any capability that changes results is
+# behind a cargo feature, default off, until it has a benchmark run behind it."
+# Seeding is sound in principle -- clauses that fail relative induction are
+# dropped (§1.4(c)) -- but an implementation error is not, and the release gate
+# is zero verdict changes across 840 cases.
+lemma-inject = []
+
 [dependencies]
 aig = { path = "./deps/aig-rs", version = "0.4.6" }
 cadical = { package = "satif-cadical", path = "./deps/cadical-rs", version = "0.2.2" }

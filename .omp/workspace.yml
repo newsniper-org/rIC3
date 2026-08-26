@@ -1,0 +1,67 @@
+name: "ric3"
+version: "1.1.1"
+
+modelsConfig: ".omp/models.yml"
+systemPrompt: ".omp/SYSTEM.md"
+
+defaultModel: "claude_opus_primary"
+
+planMode:
+  enabled: true
+  # planCreation normally runs on claude_fable_primary, but that model is
+  # currently failing and failoverRouting no longer lists it. A directly named
+  # model is not covered by failover, so it is switched here explicitly rather
+  # than left to fail. Restore by changing model back to claude_fable_primary.
+  planCreation:
+    model: "claude_opus_primary"
+    effort: "max+workflow"
+    workflows: ["architecture_review", "security_audit", "dependency_check"]
+  planExecution:
+    model: "claude_opus_primary"
+    effort: "xhigh"
+    workflows: ["code_generation", "unit_testing"]
+
+cua:
+  enabled: true
+  scope:
+    allowShellExecution: true
+    allowScreenCapture: true
+    allowUIAutomation: true
+    allowedWindowTitles: []
+
+mcp:
+  enabled: true
+  servers:
+    local_filesystem:
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "./", "../shared_data"]
+
+security:
+  requireUserApproval: false
+  requiresApprovalCommands:
+    - "uv add"
+    - "uv remove"
+    - "uv pip"
+    - "podman rm"
+  allowedCommands:
+    - "uv"
+    - "just"
+    - "podman"
+    - "cat"
+    - "ls"
+    - "grep"
+    - "cargo"
+    - "curl"
+    - "jq"
+  privacyScanner:
+    enabled: true
+    patterns:
+      - "(?i)-----BEGIN[ A-Z]*PRIVATE KEY-----"
+      - |-
+        (?i)(api[_-]?key|secret|token)[\"'\s:=]+[A-Za-z0-9_\-]{16,}
+      - "sk-[a-zA-Z0-9]{32,}"
+
+crossProject:
+  ipcDirectories:
+    enabled: true
+    baseDir: "./"

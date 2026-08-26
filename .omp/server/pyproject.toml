@@ -1,0 +1,26 @@
+[project]
+name = "omp-memory-daemon"
+version = "1.0.0"
+description = "Hybrid Semantic Search Daemon"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi>=0.141.0",
+    "uvicorn>=0.52.4",
+    "pydantic>=2.13.4",
+    "sentence-transformers>=6.0.0",
+    "sqlite-vec>=0.1.9",
+    "torch",
+    "torchvision",
+    "torchcodec"
+]
+
+# PyTorch의 CUDA 호환 휠(Wheel)을 가져오기 위한 명시적 인덱스 지정
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
+torchaudio = { index = "pytorch-cu132" }

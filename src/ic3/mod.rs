@@ -4,7 +4,7 @@ use crate::{
     gipsat::{SolverStatistic, TransysSolver},
     ic3::{block::BlockResult, localabs::LocalAbs, predprop::PredProp},
     impl_config_deref,
-    tracer::{Tracer, TracerIf},
+    tracer::{ExtractorIf, Tracer, TracerIf},
     transys::{
         Transys, TransysCtx, TransysIf, certify::Restore, lift::TsLift, unroll::TransysUnroll,
     },
@@ -187,6 +187,11 @@ pub struct IC3 {
     rng: StdRng,
     filog: IntervalLogger,
     tracer: Tracer,
+    /// Optional source of externally supplied candidate lemmas.
+    ///
+    /// Stored unconditionally so `set_extractor` behaves the same either way;
+    /// it is only *consumed* when the `lemma-inject` feature is on.
+    extractor: Option<Box<dyn ExtractorIf>>,
     ctrl: Arc<EngineCtrl>,
     renderer: Option<UiRenderer>,
 }
@@ -291,6 +296,7 @@ impl IC3 {
             rng,
             filog: Default::default(),
             tracer: Tracer::new(),
+            extractor: None,
             ctrl: Arc::new(EngineCtrl::new()),
             renderer: None,
         }
@@ -301,6 +307,58 @@ impl IC3 {
             .iter()
             .map(|l| l.map_var(|l| self.rst.restore_var(l)))
             .collect()
+    }
+}
+
+impl IC3 {
+    /// Drain externally supplied candidate lemmas into the frames.
+    ///
+    /// `ExtractorIf` yields `(Option<usize>, LitVec)`. `BMC` treats `None` as
+    /// "invariant at every unrolling" and ignores `Some(_)`; IC3 needs the
+    /// mirror image, because a frame index is precisely what a PDR frame wants.
+    ///
+    /// Soundness rests on AGENTS.md §1.4(c): these arrive as *candidates*, and
+    /// `add_lemma` puts them through the same containment handling as locally
+    /// derived lemmas, so a clause that does not hold is dropped rather than
+    /// believed. That is why seeding needs no digest match, unlike the verdict
+    /// short-circuit.
+    #[cfg(feature = "lemma-inject")]
+    fn drain_extractor(&mut self) {
+        if self.extractor.is_none() {
+            return;
+        }
+        // Collected first: `extract_lemma` borrows `self.extractor` mutably
+        // while `add_lemma` needs `&mut self.frame`.
+        let mut incoming = Vec::new();
+        if let Some(extractor) = self.extractor.as_mut() {
+            while let Some((k, lemma)) = extractor.extract_lemma() {
+                incoming.push((k, lemma));
+            }
+        }
+        if incoming.is_empty() {
+            return;
+        }
+        let level = self.level();
+        for (k, lemma) in incoming {
+            // A frame index past the current level would break the frame
+            // invariant, so clamp it. `None` means "holds everywhere", which
+            // for PDR is the deepest frame currently available.
+            let frame = match k {
+                Some(k) if k <= level => k,
+                _ => level,
+            };
+            // `add_lemma` is an inherent method on IC3 (declared in frame.rs
+            // under `impl IC3`), not on `Frames`: its body touches both
+            // `self.frame` and `self.solvers`.
+            let _ = self.add_lemma(frame, lemma, true, None);
+        }
+    }
+
+    /// No-op when the feature is off, so the call site stays unconditional and
+    /// the default build keeps upstream behaviour exactly.
+    #[cfg(not(feature = "lemma-inject"))]
+    fn drain_extractor(&mut self) {
+        let _ = &self.extractor;
     }
 }
 
@@ -315,6 +373,7 @@ impl Engine for IC3 {
         self.render_progress();
         loop {
             let start = Instant::now();
+            self.drain_extractor();
             debug!("blocking phase begin");
             loop {
                 let terminal = match self.block(None) {
@@ -371,6 +430,10 @@ impl Engine for IC3 {
 
     fn add_tracer(&mut self, tracer: Box<dyn TracerIf>) {
         self.tracer.add_tracer(tracer);
+    }
+
+    fn set_extractor(&mut self, extractor: Box<dyn ExtractorIf>) {
+        self.extractor = Some(extractor);
     }
 
     fn set_ui(&mut self, renderer: UiRenderer) {

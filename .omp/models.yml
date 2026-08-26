@@ -1,0 +1,46 @@
+models:
+  claude_fable_primary:
+    provider: anthropic
+    model: claude-fable-5
+    apiKey: ${ANTHROPIC_API_KEY}
+    contextWindow: 200000
+    description: "Claude Fable 5 (Primary)"
+
+  claude_opus_primary:
+    provider: anthropic
+    model: claude-opus-5
+    apiKey: ${ANTHROPIC_API_KEY}
+    contextWindow: 200000
+    description: "Claude Opus 5 (Primary)"
+
+  claude_sonnet_fallback:
+    provider: anthropic
+    model: claude-sonnet-5
+    apiKey: ${ANTHROPIC_API_KEY}
+    contextWindow: 200000
+    description: "Claude Sonnet 5 (Fallback)"
+
+  gemini_flash_fallback:
+    provider: google
+    model: gemini-3.7-flash
+    apiKey: ${GEMINI_API_KEY}
+    contextWindow: 1048576
+    description: "Google Gemini 3.7 Flash (Fallback)"
+
+  gpt_5_4_fallback:
+    provider: openai
+    model: gpt-5.4-turbo
+    apiKey: ${OPENAI_API_KEY}
+    contextWindow: 128000
+    description: "OpenAI GPT-5.4 (Fallback)"
+
+failoverRouting:
+  strategy: sequential
+  # claude_fable_primary is excluded while it is failing. Its definition is
+  # kept above so it can be restored by re-inserting one line here.
+  # Remaining models are pulled forward to fill the vacated slots.
+  sequence:
+    - claude_opus_primary
+    - claude_sonnet_fallback
+    - gemini_flash_fallback
+    - gpt_5_4_fallback
