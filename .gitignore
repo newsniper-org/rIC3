@@ -21,3 +21,5 @@ bench/roundtrip/target/
 
 # 격리 검증용 target (측정 바이너리 보호)
 target-check/
+
+bench/serde-size/target/

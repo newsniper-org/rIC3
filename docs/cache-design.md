@@ -332,11 +332,58 @@ cap; otherwise store clauses alone. Both numbers must be set from measurement,
 and the deciding comparison is **deserialisation time vs. preprocessing time**
 — storing is pointless if loading is not decisively cheaper.
 
-Still unmeasured, and required before the threshold can be fixed:
+### 6.3 Encoding: measured, and it is not RON
 
-1. serialised size and load time of a `Transys` at ~1.25 M vars;
-2. the distribution of preprocessing time across all 840 cases (the current
-   sample is a handful of solved cases).
+`bench/serde-size` measures the two candidate encodings on structurally
+equivalent data (clause lists are `Vec<Vec<u32>>` in shape; a `LitVec` is a
+vector of `u32`-backed `Lit`). Scales taken from the baseline run.
+
+|shape|RON|bincode|size ratio|**deserialise ratio**|
+|---|---|---|---|---|
+|invariant clauses, fifo scale (5607 × 12)|0.51 MB, de 8.7 ms|0.32 MB, de 0.4 ms|1.6×|**22.6×**|
+|preproc clauses (250241 × 3)|6.01 MB, de 110.1 ms|3.79 MB, de 11.8 ms|1.6×|9.3×|
+|side table (23592 latches)|2.78 MB, de 60.6 ms|0.79 MB, de 0.8 ms|3.5×|**78.0×**|
+
+Extrapolated to `a07-p14` (2,502,409 clauses, the largest observed):
+**RON 60.05 MB / 1100 ms** versus **bincode 37.95 MB / 118 ms**.
+
+Two corrections to earlier guesses in this document:
+
+1. **Size is not the problem.** RON costs only 1.6× on clause lists, not the
+   3–10× a text format suggests — large variable numbers cost about as many
+   characters as bytes. The side table is the exception at 3.5×, because
+   `[u8; 32]` becomes a parenthesised list of 32 decimals.
+2. **Time is the problem.** Deserialisation is 9–78× slower, worst on exactly
+   the structure atom identity needs. That is the figure that matters, since
+   the cold path pays it on every hit.
+
+**Decision: binary encoding (bincode or postcard), not RON.** Concretely this
+means *not* reusing `RicProj::save_serde_obj` / `load_serde_obj`
+(`src/cli/rproj.rs:74`), which hard-code `ron::to_string`. The storage
+directory layout and hashing discipline there are still worth borrowing; the
+encoding is not.
+
+### 6.4 The threshold, now decidable
+
+With binary encoding, loading the largest preprocessed clause database costs
+**≈118 ms** against preprocessing that was measured at **1003 s** — a ratio of
+about **0.012 %**. Storage is therefore overwhelmingly worth it whenever
+preprocessing was non-trivial at all.
+
+|parameter|value|basis|
+|---|---|---|
+|store `preproc` when preprocessing exceeded|**10 s**|two orders of magnitude above the 118 ms load, so the decision is never marginal|
+|size cap|**256 MB** serialised|38 MB at the largest observed instance; the cap only guards pathological inputs such as `Problem17.aig` (2.29 GB source)|
+|write cost on a miss|34 ms at that scale|against per-case budgets of seconds to 3600 s, comfortably inside the 1 % cold-path allowance|
+
+Still unmeasured:
+
+1. the distribution of preprocessing time across all 840 cases — the current
+   sample is a handful of solved ones, so the 10 s threshold's *hit rate* is
+   unknown even though its correctness is not;
+2. real `Transys` serialisation, as opposed to structurally equivalent data.
+   The encoding ratio will hold; absolute constants may differ if `LitVec` or
+   `DagCnf` define custom Serde impls.
 
 ---
 
@@ -421,11 +468,23 @@ engine's refusal conditions the way those two were.
    `region_key` match makes the stored result valid, so discarding it would
    charge every seed hit up to 1003 s. Verdict hits are unaffected either way.
 
-### 11.2 Still open, and what would settle them
+### 11.2 Settled by measurement since
+
+4. **Encoding is binary, not RON** (§6.3). Measured 9–78× slower
+   deserialisation for RON, worst (78×) on the side table — exactly the
+   structure atom identity needs. Size was only 1.6×, so the earlier
+   size-driven reasoning was wrong; time is the cost. Consequence:
+   `RicProj::save_serde_obj` is **not** reusable, since it hard-codes
+   `ron::to_string`.
+5. **`preproc` threshold: 10 s of preprocessing; cap 256 MB serialised**
+   (§6.4). Loading the largest observed clause database costs ≈118 ms against
+   1003 s of preprocessing — 0.012 %, so the decision is never marginal.
+
+### 11.3 Still open, and what would settle them
 
 |question|settled by|
 |---|---|
-|threshold and size cap for storing `preproc`|serialised size and load time of a ~1.25 M-var `Transys`, against its preprocessing time — measurable under an isolated `--target-dir` without disturbing the baseline|
-|preprocessing-time distribution over all 840|the baseline run itself; current sample is a few solved cases|
-|whether `mmap` is worth it for the on-disk form|only if cold-path deserialisation shows up against the 1 % budget; first cut uses plain deserialisation|
-|identity hash width (32 B vs truncated)|collision rate over the corpus; §5.4 already requires a collision flag, so a shorter hash trades size for fall-through frequency|
+|hit rate of the 10 s threshold|distribution of preprocessing time over all 840 — the baseline run itself. Correctness of the threshold is settled; how often it fires is not|
+|absolute constants for real `Transys`|serialising an actual `Transys` rather than structurally equivalent data. The encoding *ratio* will hold; constants may shift if `LitVec`/`DagCnf` define custom Serde impls|
+|whether `mmap` is worth it|only if cold-path deserialisation shows against the 1 % budget. At 118 ms for the largest instance it currently does not; first cut uses plain deserialisation|
+|identity hash width (32 B vs truncated)|collision rate over the corpus. §5.4 already requires a collision flag, so a shorter hash trades size for fall-through frequency — and §6.3 shows the side table is the most encoding-sensitive structure, so this is where width matters most|

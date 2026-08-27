@@ -1,0 +1,22 @@
+[package]
+name = "serde-size"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Measure RON vs binary serialisation cost for cache entry shapes"
+
+# Deliberately does NOT depend on rIC3: pulling the whole crate in would build
+# cadical/kissat/bitwuzla, and the question here is about the *encoding*, which
+# only needs structurally equivalent data. Clause lists are Vec<Vec<u32>> in
+# shape (LitVec is a Vec of u32-backed Lit), so the ratio carries over.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+ron = "0.12"
+bincode = { version = "2", features = ["serde"] }
+
+[[bin]]
+name = "serde-size"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 2
