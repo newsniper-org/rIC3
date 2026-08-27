@@ -210,7 +210,7 @@ A2.
 
 ---
 
-## 6. Storage
+## 6. Storage and representation across layers
 
 Content-addressed by `region_key` (32 bytes). One entry holds:
 
@@ -222,12 +222,121 @@ Content-addressed by `region_key` (32 bytes). One entry holds:
 |`region_key`|digest of $T$ + constraints|
 |`whole_digest`|digest including $\neg P$ — the verdict licence key|
 |`verdict`|`McResult`|
-|`clauses`|`Vec<LitVec>` in atom-identity terms, not variable numbers|
+|`var_identity`|side table: variable number → atom identity, for this region|
+|`clauses`|`Vec<LitVec>` in the region's own variable numbering|
+|`preproc`|**optional** preprocessed `Transys` (§6.2)|
 |`collision`|flag from §5.4|
 
-Preprocessed artifacts (swept AIG, CNF, COI, GipSAT base clause DB) are listed
-by AGENTS.md §1.5 as candidates. **Deferred**: their serialisation cost is
-unmeasured, and the cold-path budget is 1 %. Add them only with a measurement.
+### 6.1 Three layers, three encodings — and the consumer fixes one of them
+
+The choice of encoding is not free at every layer, because the *consumption*
+point is already decided by upstream's API:
+
+```rust
+fn extract_lemma(&mut self) -> Option<(Option<usize>, LitVec)>;   // tracer.rs:208
+pub(super) fn add_lemma(&mut self, frame: usize, lemma: LitVec, ..) // frame.rs:244
+```
+
+Both take `LitVec`. So the in-memory form at the point of use is **not a design
+choice** — it is `LitVec` over the *current* variable numbering. Everything else
+arranges itself around that:
+
+|layer|encoding|why|
+|---|---|---|
+|**on-wire** (lemma IPC, cross-process)|atom-identity tuples|must be self-describing; the peer has a different variable space, and a side table cannot ride along on every message at 10³/s|
+|**on-disk**|side table + `LitVec`|6–8× smaller (measured §6.1.1); the table is valid exactly when `region_key` matches|
+|**in-memory (hot)**|`LitVec`|forced by `extract_lemma` / `add_lemma`|
+|**in-memory (translation only)**|atom-identity tuples|transient, only on a `region_key` near-miss|
+
+**The rule that falls out:** *identity is boundary currency, `LitVec` is the
+working form.* Identity appears when crossing a process or a design change, and
+nowhere else. The hot path never materialises it.
+
+This keeps §5.5 honest — one identity specification, two consumers — while
+letting each layer encode it for its own cost profile. It is a logical/physical
+split, not a compromise.
+
+#### 6.1.1 Size, measured
+
+latch counts over 536 cases: min 2, **p50 171**, p90 329, max 6194. Observed
+`avg_mic_cube_len`: 4.5–11.0 literals.
+
+For 1000 clauses of 6 literals at 171 latches:
+
+|encoding|clause body|side table|total|
+|---|---|---|---|
+|identity tuples|1000 × 6 × 33 B = 198 KB|—|**198 KB**|
+|side table + `LitVec`|1000 × 6 × 4 B = 24 KB|171 × 36 B = 6.2 KB|**30 KB**|
+
+6.5× at that size, 8× at fifo scale (5607 clauses × 12 literals: 2.2 MB vs
+275 KB).
+
+#### 6.1.2 Two load paths
+
+|situation|path|
+|---|---|
+|`region_key` matches|side table is valid → deserialise `LitVec` and use **directly**; no identity materialised|
+|near-miss (design changed)|translate through identity: side table → identity → current model's identity→var map → `LitVec`|
+
+Only the second path pays the translation cost, and only it needs the identity
+scheme at run time. Both end in `LitVec`, as they must.
+
+#### 6.1.3 The cache does not stay resident
+
+A verdict hit needs one lookup; a seed hit needs one entry's clauses. Neither
+wants an LRU or a warm pool. Entries are loaded once and dropped.
+
+This is not a micro-optimisation on this host: zram occupancy was observed at
+25–38 GB against 46.4 GB of RAM during the baseline run (`docs/BASELINE.md`
+§4.0). A resident cache would compete with the very instances it is meant to
+accelerate.
+
+### 6.2 Preprocessed artifacts — store conditionally
+
+AGENTS.md §1.5 lists these as candidates. An earlier revision of this document
+deferred them on the grounds that the cost was unmeasured. **The measurement
+arrived and reverses that.**
+
+Observed `frts`/`scorr` times from the baseline run:
+
+|model size|preprocessing|
+|---|---|
+|1,258,074 vars|**1003.32 s**|
+|1,257,889 vars|1002.76 s|
+|738,926 vars|898.61 s|
+|555,353 vars|520.46 s|
+|247,516 vars|172.63 s|
+
+`--frts-tl` defaults to 1000 s and `--scorr-tl` to 200 s, so preprocessing can
+consume up to a third of the 3600 s budget. The `fifo` observation of
+`frts: ... in 0.00s` that motivated deferring was simply not representative.
+
+Who benefits:
+
+- **verdict hit: nobody.** The wrapper returns before `create_bl_engine`, and
+  preprocessing happens at or after that point (`portfolio/mod.rs:140` calls
+  `ts.preproc(..)` ahead of the factory). So the ≥100× target does not depend
+  on storing this.
+- **seed hit: potentially 1003 s.** Preprocessing depends only on $T$, and
+  `region_key` *is* the digest of $T$ + constraints. So a `region_key` match
+  means the stored preprocessing result is valid. Discarding it means paying up
+  to 1003 s again on every seed hit, which can cancel the benefit seeding is
+  supposed to deliver.
+
+`Transys` derives `Serialize`/`Deserialize` (`src/transys/mod.rs:123`), so this
+is mechanically available.
+
+**Policy: store only when it pays.** Write the preprocessed `Transys` when
+preprocessing took longer than a threshold *and* the serialised size is under a
+cap; otherwise store clauses alone. Both numbers must be set from measurement,
+and the deciding comparison is **deserialisation time vs. preprocessing time**
+— storing is pointless if loading is not decisively cheaper.
+
+Still unmeasured, and required before the threshold can be fixed:
+
+1. serialised size and load time of a `Transys` at ~1.25 M vars;
+2. the distribution of preprocessing time across all 840 cases (the current
+   sample is a handful of solved cases).
 
 ---
 
@@ -295,10 +404,28 @@ engine's refusal conditions the way those two were.
 
 ---
 
-## 11. Open decisions
+## 11. Decisions
 
-1. **Fork patch vs upstream PR** for IC3 lemma injection (§4.3).
-2. **Clause storage form** — atom-identity tuples vs a serialised `LitVec` plus
-   a variable-to-identity side table. The former is self-describing, the latter
-   is smaller; decide against the 1 % budget.
-3. **Whether to store preprocessed artifacts** at all (§6).
+### 11.1 Settled
+
+1. **Fork patch *and* upstream PR** for IC3 lemma injection (§4.3). Patch is
+   `879ee74` behind the `lemma-inject` feature; PR body is
+   `docs/upstream-pr-ic3-lemma-inject.md`, held until it has measurements.
+2. **Clause storage form — both, at different layers** (§6.1). Identity is
+   boundary currency, `LitVec` is the working form: identity tuples on the wire
+   and for near-miss translation, side table + `LitVec` on disk, `LitVec` in
+   memory because `extract_lemma`/`add_lemma` require it. The question was
+   mis-framed as a single choice; the consumer had already fixed one layer.
+3. **Preprocessed artifacts — store conditionally** (§6.2). Reversed by
+   measurement: preprocessing reaches 1003 s on the largest instances, and a
+   `region_key` match makes the stored result valid, so discarding it would
+   charge every seed hit up to 1003 s. Verdict hits are unaffected either way.
+
+### 11.2 Still open, and what would settle them
+
+|question|settled by|
+|---|---|
+|threshold and size cap for storing `preproc`|serialised size and load time of a ~1.25 M-var `Transys`, against its preprocessing time — measurable under an isolated `--target-dir` without disturbing the baseline|
+|preprocessing-time distribution over all 840|the baseline run itself; current sample is a few solved cases|
+|whether `mmap` is worth it for the on-disk form|only if cold-path deserialisation shows up against the 1 % budget; first cut uses plain deserialisation|
+|identity hash width (32 B vs truncated)|collision rate over the corpus; §5.4 already requires a collision flag, so a shorter hash trades size for fall-through frequency|
