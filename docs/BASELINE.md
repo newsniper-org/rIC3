@@ -1,11 +1,15 @@
 # BASELINE.md — measured upstream baseline on our hardware
 
-**Status:** measurement IN PROGRESS, started 2026-08-25. **Stage:** 1, work
-item 1.2. **Pin:** see `docs/UPSTREAM.md` (`7149d56`).
+**Status:** **COMPLETE**. Measured 2026-08-25 → 2026-09-05, 840/840 cases.
+**Stage:** 1, work item 1.2. **Pin:** see `docs/UPSTREAM.md` (`7149d56`).
 
-Every later performance claim in this project is a delta against this file
-(AGENTS.md §1.2). Until the "Measured result" table below is filled in, no
-stage-2/3/4 performance claim may be made.
+Every later performance claim in this project is a delta against §5 of this
+file (AGENTS.md §1.2). The headline figures are **602 solved, PAR-2 2114.98**
+against the paper's 606 / 2147.70.
+
+**The measurement environment no longer exists.** The host kernel was replaced
+after the run (§4.2), so any *new* measurement is not directly comparable to
+§5 without a same-kernel control. Read §4.2 before quoting a comparison.
 
 ---
 
@@ -276,44 +280,113 @@ instances is not distinguishable from noise on this host. Report solved count
 and PAR-2 over the full suite, never a wall clock on a hand-picked instance
 (AGENTS.md §1.2).
 
+### 4.2 The kernel was replaced after the run — read before comparing
+
+A system freeze prompted a kernel update and reboot. Timeline:
+
+|event|time|
+|---|---|
+|last case measured|2026-09-05T00:53Z|
+|reboot|2026-09-05T08:35Z|
+|cases measured after the reboot|**0**|
+
+**The baseline is unaffected.** The run completed 7.7 hours before the reboot,
+`summary.json` and `verdicts.json` were written normally, and no case carries a
+post-reboot timestamp. The rule in §4.0 held for the whole run by luck of
+ordering rather than by design.
+
+But the environment changed, and not slightly:
+
+|  |during the run|now|
+|---|---|---|
+|kernel|`7.0.9-1-cachyos-**rt**-bore`|`7.2.3-1-cachyos`|
+|preemption|`PREEMPT_RT` + BORE scheduler|`PREEMPT_DYNAMIC`|
+
+That is a different scheduler class, and §4 flagged `PREEMPT_RT` as a source of
+timing variance in the first place. So:
+
+> **Any new measurement runs on a different machine, effectively.** Comparing a
+> fresh number directly against §5 conflates a kernel change with whatever the
+> new measurement was meant to isolate.
+
+**Consequence for the regression investigation.** The plan in
+`docs/regression-investigation.md` was to re-measure the 27 regressions against
+`v1.5.2`. On the new kernel that would move two variables at once. It needs a
+three-point design instead:
+
+|#|kernel|rIC3|purpose|
+|---|---|---|---|
+|1|old|`7149d56`|the baseline (§5), already measured|
+|2|**new**|`7149d56`|isolates the **kernel** effect|
+|3|new|`v1.5.2`|isolates the **version** effect|
+
+27 cases × 2 runs ≈ 24 h, and point 2 quantifies what the RT kernel was worth —
+which is useful in its own right, since §4.1's 8 % noise band was measured
+under the old kernel and may not hold.
+
 ---
 
 ## 5. Measured result
 
-> **NOT YET AVAILABLE.** The 840-case run started 2026-08-25 and is expected to
-> take ≈10 days. Do not quote or infer these numbers until this section is
-> filled in and this Status line is changed to `complete`.
+**COMPLETE.** Run started 2026-08-25T11:40Z, finished 2026-09-05T00:53Z:
+**253 hours (10.55 days)** of wall clock, 840 of 840 cases, no errors and no
+interruptions. Artifacts in `bench/results/baseline-840/`.
 
-Runtime is dominated by timeouts, which no amount of CPU speed reduces:
-225 unsolved × 3600 s ≈ 225 h, against ≈33 h (paper hardware) of solved-case
-time. A faster host converting timeouts into solves would *shorten* the run.
-
-|figure|published|measured here|delta|
+|figure|published|**measured here**|delta|
 |---|---|---|---|
-|cases|840|_pending_||
-|solved|606|_pending_||
-|TO|225|_pending_||
-|MO|9|_pending_||
-|PAR-2|2147.70|_pending_||
+|cases|840|**840**|—|
+|solved|606|**602**|**−4**|
+|TO|225|**233**|+8|
+|MO|9|**5**|−4|
+|**PAR-2**|2147.70|**2114.98**|**−32.71**|
 
-Artifacts, once complete, live in `bench/results/baseline-840/`:
-`results.jsonl` (per instance), `summary.json`, `verdicts.json` (the diffable
-input to the "zero verdict changes" gate), `environment.json`.
+**Solved is 4 lower while PAR-2 is 32.71 better.** Those are consistent: the
+cases we do solve, we solve faster (this host runs ≈3× the paper's EPYC 7532
+per case), but four cases fall the other way. PAR-2 is the figure AGENTS.md
+§1.2 asks for, and on it we are ahead of the published number.
 
-Per-case diff against the paper:
+Verdict breakdown: 480 unsat (safe), 122 sat (unsafe). Peak RSS across the run
+was 29.5 GiB against the 32 GB cap.
+
+### 5.1 Composition of the −4
+
+The aggregate hides two larger, opposing movements:
+
+|category|count|
+|---|---|
+|both solved|579|
+|**regressions** (reference solved, we did not)|**27**|
+|**improvements** (we solved, reference did not)|**23**|
+|neither solved|211|
+
+So −4 is 27 − 23, not four isolated failures. The 27 are listed in
+`bench/corpus/reference/regressions.txt` and investigated in
+`docs/regression-investigation.md`; all 27 are timeouts on our side, and 17 of
+them are one family (`picorv32_mut{A,B,C}X_nomem-p*`).
+
+The MO count moving 9 → 5 is the other half of the story: four instances the
+paper could not fit in 32 GB, we did. Combined with §4's caveat that our MO
+*durations* are not comparable, treat the MO delta as informative but not as
+evidence about the solver.
+
+### 5.2 Reproduce
 
 ```sh
-just bench-compare bench/results/baseline-840
+just bench-baseline                                    # the run itself
+just bench-compare bench/results/baseline-840          # per-case diff
 ```
 
-### 5.1 Preliminary observation (NOT the baseline)
+Recorded environment for this run (`environment.json`): commit `b4c1ba4`,
+tracked tree clean, `Linux-7.0.9-1-cachyos-rt-bore`, `rIC3 1.5.2`,
+`rustc 1.96.0`.
 
-A 25-case subset chosen from the fastest reference instances (all solved by
-both) gave a runtime ratio of **median 0.28×** ours/reference — this host is
-roughly 3–4× faster per case than the paper's EPYC 7532 on short instances.
-Regressions: 0. This is a sanity check on the harness, not a result: 25 cases
-of 840, all trivially fast, and the ratio says nothing about hard instances
-where memory bandwidth dominates.
+### 5.3 Preliminary observation, kept for the record
+
+Before the run, a 25-case subset of the fastest reference instances gave a
+runtime ratio of median 0.28×. The completed run's figure over all cases both
+sides solved is **0.35×**, so the early sample was optimistic — as expected,
+since those 25 were all sub-second cases. Regressions in that sample were 0,
+which the full run shows was also unrepresentative.
 
 ---
 
