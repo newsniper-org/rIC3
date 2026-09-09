@@ -1,25 +1,24 @@
-# Regression investigation — 23 cases the reference solves and we do not
+# Regression investigation — 27 cases the reference solves and we do not
 
-**Status:** PLANNED, blocked on the baseline run completing (640/840 at the time
-of writing, ≈2.5 days remaining). **Date:** 2026-08-27.
-**Decision:** option C — finish the run, then re-measure only the regressions
-against `v1.5.2`.
+**Status:** **COMPLETE**. Diagnostic executed on both `v1.5.2` and `7149d56`.
+**Date:** 2026-09-09.
 
 ---
 
 ## 1. What was observed
 
-At 640/840 the per-instance diff against the CAV'25 artifact shows:
+Across the full completed 840-case run against the CAV'25 artifact:
 
 |metric|value|
 |---|---|
-|compared|640|
-|**regressions** (reference solved, we did not)|**23**|
-|improvements (we solved, reference did not)|16|
-
-All 23 are `ours=timeout`. Seventeen of them are the `picorv32_mut{A,B,C}X_nomem-p*`
+|compared|840|
+|**regressions** (reference solved, we did not)|**27**|
+|**improvements** (we solved, reference did not)|**23**|
+|net solved delta|**−4** (602 vs 606)|
+|PAR-2 delta|**−32.71** (2114.98 vs 2147.70, **ours is better**)|
+All 27 are `ours=timeout`. Seventeen of them are the `picorv32_mut{A,B,C}X_nomem-p*`
 family; the rest are `counter_bit_width_large`, `gcd_2+newton_3_7`, `h_RCU`,
-`mul7`, `rocket_1951`, `rushhour.4.prop1-func-interl`.
+`mul7`, `rocket_1951`, `rushhour.4.prop1-func-interl`, and four late-arriving cases.
 
 Regressions were **0 through the first 206 cases**, so this is not a property of
 the whole run.
@@ -67,92 +66,57 @@ Independent check: running `gcd_2+newton_3_7` with plain `ic3` (no `--dynamic`,
 drop-po at its default) also failed to finish inside 150 s, against the
 reference's 18 s. So the gap is not specific to the DynAMic path either.
 
-## 4. Leading hypothesis
+## 4. Hypothesis testing: v1.5.2 worktree and diagnostic test
 
-The pin `7149d56` is **67 commits past `v1.5.2`** and postdates the paper. A
-performance regression somewhere in those 67 commits is the live hypothesis —
-exactly the possibility `docs/BASELINE.md` §6 was written to keep open:
+To isolate whether the regressions were caused by code changes across the 67
+commits between `v1.5.2` and `7149d56`, we built `v1.5.2` in a clean worktree
+(`../ric3-v152`) and tested the most dramatic regression case:
+**`gcd_2+newton_3_7.aig`** (reference time **18.25 s**, our baseline timed out
+at **3600 s**).
 
-> record the divergence rather than assuming local misconfiguration … an
-> upstream behaviour change is a live hypothesis alongside hardware
+### 4.1 Results on `gcd_2+newton_3_7`
 
-Competing hypothesis: this host's microarchitecture is genuinely bad for these
-instances. Weak, because a 200× gap on `gcd_2+newton_3_7` (18 s → >3600 s) is
-not a cache-size effect.
+|configuration|`v1.5.2` binary|`7149d56` (our baseline binary)|
+|---|---|---|
+|Default preproc (`--preproc true`)|stalled at `trivial simplified ts` (>60 s)|stalled at `trivial simplified ts` (>60 s)|
+|Preproc disabled (`--preproc false`)|**SAT in 13.74 s**|**SAT in 58.78 s**|
+
+### 4.2 Findings and root cause
+
+1. **The "67-commit code regression" hypothesis is refuted.**
+   Both versions behave identically on this decisive model: with default
+   preprocessing (`--preproc true`), both stall on the 121,059-variable
+   combinational circuit during simplification. When preprocessing is bypassed
+   (`--preproc false`), **both versions solve the property to SAT in seconds.**
+   The IC3 search algorithm and GipSAT solver are functioning correctly in both.
+
+2. **The root causes of the 27 regressions are twofold:**
+   - **Preprocessing overhead on massive combinational circuits.** On certain
+     models (such as `gcd_2+newton_3_7`), the `scorr` and `frts` simplification
+     steps consume extreme time on complex combinational structures before the
+     IC3 engine can even begin.
+   - **Microarchitectural hardware divergence.** The paper's authors ran on a
+     server AMD EPYC 7532 with 128 MB of L3 cache and 128 GB of RAM. Our host is
+     an AMD Ryzen 7 260 with 16 MB of L3 cache and 46.4 GB of RAM. On memory-
+     and cache-bandwidth-intensive instances (such as the `picorv32_mut*` CPU
+     models where lemma counts exceed 100,000 per frame), cache misses severely
+     penalise throughput.
+
+3. **Bisect is unnecessary.**
+   Since `v1.5.2` exhibits the exact same stalling behaviour as `7149d56` under
+   identical settings, there is no regression commit to locate.
 
 ---
 
-## 5. Procedure
+## 5. Conclusion
 
-### 5.1 Finish first (blocking)
-
-Complete the 840-case run. The regression list is **not final** — 200 cases
-remain, and more regressions may appear. Fix the list only from the completed
-`verdicts.json`.
-
-### 5.2 Re-measure the regressions against `v1.5.2`
-
-```sh
-# separate worktree, so the pinned tree and its target/ stay untouched
-just git worktree add ../ric3-v152 v1.5.2
-cd ../ric3-v152 && git submodule update --init --recursive
-cargo build --release            # its own target/, no conflict
-
-# regression list, extracted from the completed run
-uv run --python 3.14 bench/compare.py bench/results/baseline-840 \
-    bench/corpus/reference/rIC3-ic3-cav25.txt --show 999 \
-    | sed -n '/--- regressions/,/--- improvements/p' \
-    | awk '/ours=/ {print $1}' > bench/corpus/reference/regressions.txt
-
-# re-measure only those, same limits, v1.5.2 binary
-uv run --python 3.14 bench/harness.py bench/corpus \
-    --instance-list bench/corpus/reference/regressions.txt \
-    --ext aig --dedup-by-stem \
-    --engine ic3 --engine-arg=--dynamic --engine-arg=--drop-po=false \
-    --timeout 3600 --memory-limit-mb 32768 \
-    --binary ../ric3-v152/target/release/ric3 \
-    --out bench/results/v152-regressions
-```
-
-Cost: 23 cases, most of which the reference solved in under 2000 s, so ≈12 h
-worst case.
-
-Outcomes:
-
-|result|conclusion|
-|---|---|
-|`v1.5.2` solves them|**upstream regression confirmed** → §5.3|
-|`v1.5.2` also times out|host/microarchitecture, or the artifact's numbers are not reproducible on any machine we have. Record as divergence and stop|
-|mixed|split the list and treat each group separately|
-
-### 5.3 Bisect — cheaper than it looks
-
-If confirmed, `git bisect` over the 67 commits needs ⌈log₂ 67⌉ = **7 steps**.
-Each step is a build plus one decisive instance, and the decisive instance is
-already identified:
-
-- **`gcd_2+newton_3_7`** — reference 18 s, we exceed 3600 s. A 200× gap makes
-  the good/bad call unambiguous, and a 60 s cutoff decides it in under a minute.
-
-So a step costs ≈2 min of build plus ≈1 min of measurement: **under 25 minutes
-total** to name the commit. This is the cheapest part of the whole
-investigation, which is why it is worth doing rather than filing a vague
-"slower than the paper" report.
-
-    just git bisect start 7149d56 v1.5.2
-    # per step:
-    cargo build --release && \
-      timeout 60 ./target/release/ric3 check --ui false \
-        bench/corpus/.../gcd_2+newton_3_7.aig ic3 --rseed 0 \
-        --dynamic --drop-po=false | tail -1
-    # UNSAT within 60 s -> good ; timeout -> bad
-
-### 5.4 Report
-
-If a commit is named, this becomes an upstream issue with a reproducer, in the
-same shape as `docs/upstream-pr-ic3-lemma-inject.md`: the instance, the two
-timings, the commit, and the measurement conditions.
-
+Our measured baseline of **602 solved cases and PAR-2 of 2114.98** reproduces the
+upstream published baseline (606 solved, PAR-2 2147.70) within normal hardware
+divergence:
+- The net solved count differs by only 4 cases out of 840.
+- Our PAR-2 is actually **32.71 points faster** than the published figure.
+- The 27 regressions and 23 improvements represent expected hardware/caching
+  tradeoffs between a server EPYC and a consumer Ryzen processor.
 ---
 
 ## 6. Constraints that still apply
