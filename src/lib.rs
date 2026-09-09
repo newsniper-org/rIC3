@@ -18,6 +18,8 @@ pub mod utils;
 pub mod wlbmc;
 pub mod wlkind;
 pub mod wltransys;
+#[cfg(feature = "cache")]
+pub mod cache;
 
 use crate::{
     config::EngineConfig,
@@ -184,6 +186,12 @@ pub fn create_bl_engine(
     ts: Transys,
     sym: logicrs::VarSymbols,
 ) -> Box<dyn BlEngine> {
+    #[cfg(feature = "cache")]
+    {
+        if let Some(engine) = cache::try_cached_bl_engine(&cfg, &ts, &sym) {
+            return engine;
+        }
+    }
     match cfg {
         EngineConfig::IC3(cfg) => Box::new(ic3::IC3::new(cfg, ts, sym)),
         EngineConfig::Kind(cfg) => Box::new(kind::Kind::new(cfg, ts)),
