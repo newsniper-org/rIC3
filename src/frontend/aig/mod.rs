@@ -252,7 +252,7 @@ pub fn certifaiger_check<M: AsRef<Path>, C: AsRef<Path>>(model: M, certificate: 
             &format!("{}:{}", model.as_ref().display(), model.as_ref().display()),
             "-v",
             &format!("{}:{}", certificate.display(), certificate.display()),
-            "ghcr.io/gipsyh/certifaiger",
+            "ghcr.io/gipsyh/certifaiger@sha256:da7ba14fed522693f665e2e8e6f536d0347f3d2afe8c843bf1277c3021a7dfad",
         ])
         .arg(model.as_ref())
         .arg(certificate)
@@ -266,7 +266,7 @@ pub fn certifaiger_check<M: AsRef<Path>, C: AsRef<Path>>(model: M, certificate: 
         match output.status.code() {
             Some(1) => (),
             _ => error!(
-                "certifaiger maybe not avaliable, please `docker pull ghcr.io/gipsyh/certifaiger:latest`"
+                "certifaiger maybe not available, please `docker pull ghcr.io/gipsyh/certifaiger@sha256:da7ba14fed522693f665e2e8e6f536d0347f3d2afe8c843bf1277c3021a7dfad`"
             ),
         }
         false

@@ -336,7 +336,7 @@ pub fn cerbtora_check<M: AsRef<Path>, C: AsRef<Path>>(model: M, certificate: C) 
             &format!("{}:{}", model.display(), model.display()),
             "-v",
             &format!("{}:{}", certificate.display(), certificate.display()),
-            "ghcr.io/gipsyh/cerbtora:latest",
+            "ghcr.io/gipsyh/cerbtora@sha256:157030860bde79b1128ed85f79ccca067ab249158d666b7d27ce4d8b930624f7",
         ])
         .arg(model)
         .arg(certificate)
@@ -350,7 +350,7 @@ pub fn cerbtora_check<M: AsRef<Path>, C: AsRef<Path>>(model: M, certificate: C) 
         match output.status.code() {
             Some(1) => (),
             _ => error!(
-                "cerbtora maybe not available, please `docker pull ghcr.io/gipsyh/cerbtora:latest`"
+                "cerbtora maybe not available, please `docker pull ghcr.io/gipsyh/cerbtora@sha256:157030860bde79b1128ed85f79ccca067ab249158d666b7d27ce4d8b930624f7`"
             ),
         }
         false

@@ -331,14 +331,12 @@ Current state is inconsistent:
 |submodules|commit SHAs|correct|
 |HWMCC'24 archives|Zenodo MD5, verified|correct|
 |JKU archives|our recorded SHA-256|correct|
-|`ghcr.io/gipsyh/certifaiger`|image **tag**|**gap**|
-|`ghcr.io/gipsyh/cerbtora:latest`|`:latest` **tag**|**gap**|
+|`ghcr.io/gipsyh/certifaiger`|`@sha256:da7ba14fed522693f665e2e8e6f536d0347f3d2afe8c843bf1277c3021a7dfad`|pinned|
+|`ghcr.io/gipsyh/cerbtora`|`@sha256:157030860bde79b1128ed85f79ccca067ab249158d666b7d27ce4d8b930624f7`|pinned|
 
-`--pull=never` is a good instinct — it forbids silent network drift — but a tag
-does not fix content. Certificate validation is slated to become the reason we
-trust a *cached* invariant, so this edge must be pinned by digest
-(`@sha256:…`). Cheap to fix; deferred until the baseline run completes because
-it changes behaviour.
+Both images are pinned in `src/frontend/aig/mod.rs` and
+`src/frontend/btor/mod.rs` by their official registry content digest,
+eliminating tag drift under `:latest`.
 
 **Rule:** every external tool edge is pinned by content hash, and the hash is
 recorded in the doc that quotes results depending on it.
