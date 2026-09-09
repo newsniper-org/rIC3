@@ -266,19 +266,23 @@ without touching the timing model at all.
 
 ### 4.1 Measured run-to-run noise
 
-On `examples/fvbench/fifo.btor` (ic3, 4 repetitions, cold and warm):
+On `examples/fvbench/fifo.btor` across kernels using the preserved baseline
+binary (`target/release/ric3-baseline-20260825`):
 
-    9.07 s, 9.32 s, 9.32 s, 9.82 s     spread ≈ 8 % of the median
+- **Old kernel (`7.0.9-rt-bore`, `PREEMPT_RT` + BORE)**:
+  `9.07 s, 9.32 s, 9.32 s, 9.82 s` — **spread ≈ 8 %** of the median.
+- **New kernel (`7.2.3-1-cachyos`, `PREEMPT_DYNAMIC`)**:
+  `9.07 s, 9.07 s, 9.07 s, 9.07 s, 9.07 s, 9.07 s` (cold ×3, warm ×3) —
+  **spread < 0.1 %**.
 
-A cold/warm split measured at PAR-2 4.9174 vs 4.6673 on a two-instance set is
-**entirely within this band**. There is no cache in the tree yet, so the
-cold/warm axis currently measures noise and nothing else. Do not read it as a
-cache result.
+This confirms that the 8 % timing jitter was an artifact of the PREEMPT_RT /
+BORE scheduler configuration. Under the new standard kernel, run-to-run
+variance drops to near zero on this model.
 
-**Noise floor rule:** an improvement smaller than ~8 % on a handful of
-instances is not distinguishable from noise on this host. Report solved count
-and PAR-2 over the full suite, never a wall clock on a hand-picked instance
-(AGENTS.md §1.2).
+**Noise floor rule:** under the old kernel, differences under 8 % were
+indistinguishable from noise. Under the new kernel, timing is highly stable.
+Nevertheless, report solved count and PAR-2 over the full suite, never a wall
+clock on a hand-picked instance (AGENTS.md §1.2).
 
 ### 4.2 The kernel was replaced after the run — read before comparing
 
