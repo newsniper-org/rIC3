@@ -9,7 +9,7 @@
 //!    (r_1' < r_1) || (r_1' == r_1 && (r_2' < r_2 || (r_2' == r_2 && ...)))
 
 use anyhow::Result;
-use crate::spec::poly::{ConcreteSort, PolyExpr};
+use crate::spec::poly::PolyExpr;
 
 /// A single ranking measure term.
 #[derive(Debug, Clone, PartialEq)]

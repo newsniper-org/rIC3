@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
-use logicrs::{Lit, LitVec, Var};
+use logicrs::{LitVec, Var};
 
 /// A literal identified by its content-derived canonical atom name and polarity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
