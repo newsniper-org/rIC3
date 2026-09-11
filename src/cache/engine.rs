@@ -41,6 +41,12 @@ impl Engine for CachedVerdictEngine {
         self.licence.verdict
     }
 
+    fn add_tracer(&mut self, _tracer: Box<dyn crate::tracer::TracerIf>) {}
+
+    fn set_extractor(&mut self, _extractor: Box<dyn crate::tracer::ExtractorIf>) {}
+
+    fn set_ui(&mut self, _renderer: crate::ui::UiRenderer) {}
+
     fn statistic(&mut self) {
         log::info!("Verdict returned instantly from method/digest cache (verdict licence hit).");
     }
