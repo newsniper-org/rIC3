@@ -525,6 +525,14 @@ impl BlEngine for IC3 {
     }
 
     fn invariant(&mut self) -> Vec<LitVec> {
-        self.inner_invariant()
+        let raw_invariants = self.inner_invariant();
+        let mut restored: Vec<LitVec> = raw_invariants
+            .into_iter()
+            .map(|c| LitVec::from_iter(c.iter().map(|l| self.rst.restore(*l))))
+            .collect();
+        for eq in self.rst.eq_invariant() {
+            restored.push(eq);
+        }
+        restored
     }
 }
