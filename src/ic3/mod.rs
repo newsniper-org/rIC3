@@ -523,4 +523,8 @@ impl BlEngine for IC3 {
         res.exact_state(&self.ots, true);
         res
     }
+
+    fn invariant(&mut self) -> Vec<LitVec> {
+        self.inner_invariant()
+    }
 }

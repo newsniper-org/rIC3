@@ -221,16 +221,28 @@ impl BlEngine for CachingBlEngine {
     fn cex(&mut self) -> BlCex {
         self.inner.cex()
     }
+
+    fn invariant(&mut self) -> Vec<logicrs::LitVec> {
+        self.inner.invariant()
+    }
 }
 
 impl CachingBlEngine {
     fn save_result(&mut self, verdict: McResult) {
-        // Collect clauses if UNSAT and proof is available
-        let stored_clauses = Vec::new();
+        let mut stored_clauses = Vec::new();
         if verdict.is_unsat() {
-            // Note: proof() generates the AIG-encoded proof.
-            // For first-cut implementation, store empty/available clauses.
-            // In C4, inner_invariant extraction is hooked.
+            let invs = self.inner.invariant();
+            for clause in invs {
+                let mut c = Vec::with_capacity(clause.len());
+                for l in clause.iter() {
+                    let var_id = l.var().0 as i32;
+                    c.push(if l.polarity() { var_id } else { -var_id });
+                }
+                if !c.is_empty() {
+                    stored_clauses.push(c);
+                }
+            }
+            log::info!("Captured {} inductive invariant clauses for reuse/seeding.", stored_clauses.len());
         }
 
         let entry = CacheEntry {

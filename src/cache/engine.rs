@@ -66,4 +66,8 @@ impl BlEngine for CachedVerdictEngine {
     fn cex(&mut self) -> BlCex {
         BlCex::new()
     }
+
+    fn invariant(&mut self) -> Vec<logicrs::LitVec> {
+        Vec::new()
+    }
 }

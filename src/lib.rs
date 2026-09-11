@@ -142,6 +142,9 @@ pub trait BlEngine: Engine {
         panic!("unsupport counterexample");
     }
 
+    fn invariant(&mut self) -> Vec<logicrs::LitVec> {
+        Vec::new()
+    }
     fn certificate(&mut self, res: McResult) -> McBlCertificate {
         match res {
             McResult::UNSAT => McBlCertificate::UNSAT(self.proof()),
