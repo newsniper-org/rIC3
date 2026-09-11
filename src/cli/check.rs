@@ -41,6 +41,14 @@ pub struct CheckConfig {
     /// interrupt statistic
     #[arg(long, default_value_t = false)]
     pub interrupt_statistic: bool,
+
+    /// directory for method/digest cache storage
+    #[arg(long = "cache-dir")]
+    pub cache_dir: Option<PathBuf>,
+
+    /// disable method/digest cache
+    #[arg(long = "no-cache", default_value_t = false)]
+    pub no_cache: bool,
 }
 
 fn report_res(chk: &CheckConfig, res: McResult) {
@@ -68,6 +76,12 @@ fn report_res(chk: &CheckConfig, res: McResult) {
 }
 
 pub fn check(mut chk: CheckConfig, cfg: EngineConfig) -> anyhow::Result<()> {
+    if chk.no_cache {
+        unsafe { env::set_var("RIC3_CACHE_DISABLE", "1") };
+    }
+    if let Some(cache_dir) = &chk.cache_dir {
+        unsafe { env::set_var("RIC3_CACHE_DIR", cache_dir) };
+    }
     if env::var("RUST_LOG").is_err() {
         unsafe { env::set_var("RUST_LOG", if chk.ui { "warn" } else { "info" }) };
     }
