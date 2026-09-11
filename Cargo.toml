@@ -81,6 +81,12 @@ strip = true
 # profile it was taken under.
 #
 # Build with: cargo build --profile profiling
+
+[workspace]
+members = [
+    ".",
+    "crates/ric3-middleware",
+]
 # Binary at:  target/profiling/ric3
 [profile.profiling]
 inherits = "release"
