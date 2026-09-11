@@ -2222,6 +2222,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "clap",
+ "env_logger",
  "giputils",
  "log",
  "logicrs",
