@@ -13,8 +13,9 @@ use rIC3::tracer::ExtractorIf;
 use rIC3::transys::Transys;
 use rIC3::{BlEngine, create_bl_engine};
 
+use crate::riemann::cascade::{CascadeDetector, CascadedJumpBuilder};
 use crate::riemann::counter::CounterDetector;
-
+use crate::riemann::modulo::{ModuloDetector, ModuloJumpBuilder};
 /// An extractor that yields Riemann accelerated candidate lemmas to IC3.
 pub struct RiemannLemmaExtractor {
     lemmas: Vec<LitVec>,
@@ -54,7 +55,7 @@ impl RiemannEngine {
 
         let mut accelerated_lemmas = Vec::new();
 
-        for counter in counters {
+        for counter in &counters {
             // For multi-bit counters, synthesize jump bounds on the MSB / overflow bit
             // if initial state is zero or known.
             if counter.width >= 4 {
@@ -67,6 +68,26 @@ impl RiemannEngine {
                 }
             }
         }
+
+        // Synthesize macro-step jump lemmas for cascaded counter architectures
+        let cascade_detector = CascadeDetector::new(ts);
+        let cascades = cascade_detector.detect_cascades(&counters);
+        for pair in &cascades {
+            let macro_lemmas = CascadedJumpBuilder::synthesize_cascaded_lemmas(pair, ts);
+            accelerated_lemmas.extend(macro_lemmas);
+        }
+
+        // Synthesize modulo boundary exclusion lemmas
+        let modulo_detector = ModuloDetector::new(ts);
+        let modulo_counters = modulo_detector.detect_modulo_counters(&counters);
+        for mc in &modulo_counters {
+            let mod_lemmas = ModuloJumpBuilder::synthesize_modulo_exclusion_lemmas(mc, ts);
+            accelerated_lemmas.extend(mod_lemmas);
+        }
+
+        // Deduplicate identical candidate lemmas
+        accelerated_lemmas.sort();
+        accelerated_lemmas.dedup();
 
         accelerated_lemmas
     }
