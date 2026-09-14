@@ -1,11 +1,12 @@
-//! Content-Derived Lemma Exchange and Survival Rate Instrumentation.
+//! Content-Derived Lemma Exchange and Adaptive Routing.
 //!
-//! # Specification (AGENTS.md Stage 1 Phase D, docs/stage1-architecture-review.md §5.1)
+//! # Specification (AGENTS.md Stage 1 Phase D, Stage 4 §1.2)
 //!
 //! Replaces fragile positional `LitVec` IPC sharing with content-derived atom identities:
 //! - Literals are represented as `(atom_name: String, polarity: bool)`.
 //! - Translates across engines with distinct variable allocations.
 //! - Tracks candidate lemma survival rates during relative induction.
+//! - Dynamically throttles unproductive workers via `AdaptiveLemmaRouter`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -69,7 +70,7 @@ impl SurvivalMeter {
     pub fn survival_rate(&self) -> f64 {
         let total = self.survived_count() + self.dropped_count();
         if total == 0 {
-            0.0
+            100.0 // Default optimistic
         } else {
             (self.survived_count() as f64 / total as f64) * 100.0
         }
@@ -112,7 +113,6 @@ impl ContentLemmaBridge {
     }
 
     /// Import canonical `ContentLemma` into engine-local `LitVec`.
-    /// Returns `None` if any atom cannot be mapped to a local variable.
     pub fn import_lemma(&self, content_lemma: &ContentLemma) -> Option<LitVec> {
         let mut lits = Vec::with_capacity(content_lemma.lits.len());
         for clit in &content_lemma.lits {
@@ -123,6 +123,44 @@ impl ContentLemmaBridge {
             }
         }
         Some(LitVec::from(lits.as_slice()))
+    }
+}
+
+/// Adaptive Router managing cross-worker lemma distribution and survival filtering.
+pub struct AdaptiveLemmaRouter {
+    meters: HashMap<usize, Arc<SurvivalMeter>>,
+    min_survival_threshold: f64,
+}
+
+impl AdaptiveLemmaRouter {
+    pub fn new(min_survival_threshold: f64) -> Self {
+        Self {
+            meters: HashMap::new(),
+            min_survival_threshold,
+        }
+    }
+
+    pub fn register_worker(&mut self, worker_id: usize) -> Arc<SurvivalMeter> {
+        let meter = SurvivalMeter::new();
+        self.meters.insert(worker_id, Arc::clone(&meter));
+        meter
+    }
+
+    /// Determine whether a lemma from `source_worker` should be broadcast to peers.
+    /// Throttles workers whose survival rate falls below the threshold.
+    pub fn should_forward(&self, source_worker: usize) -> bool {
+        if let Some(meter) = self.meters.get(&source_worker) {
+            let rate = meter.survival_rate();
+            // Forward if worker has proven survival track record or has low sample count
+            let total = meter.survived_count() + meter.dropped_count();
+            if total < 5 {
+                true // Grace period
+            } else {
+                rate >= self.min_survival_threshold
+            }
+        } else {
+            true
+        }
     }
 }
 
@@ -160,5 +198,22 @@ mod tests {
 
         let imported = bridge.import_lemma(&exported).unwrap();
         assert_eq!(imported.as_slice(), original_litvec.as_slice());
+    }
+
+    #[test]
+    fn test_adaptive_lemma_router() {
+        let mut router = AdaptiveLemmaRouter::new(20.0);
+        let m1 = router.register_worker(1);
+        let m2 = router.register_worker(2);
+
+        // Worker 1: 8 survived, 2 dropped -> 80% (passes)
+        m1.record_survived(8);
+        m1.record_dropped(2);
+        assert!(router.should_forward(1));
+
+        // Worker 2: 1 survived, 9 dropped -> 10% (throttled)
+        m2.record_survived(1);
+        m2.record_dropped(9);
+        assert!(!router.should_forward(2));
     }
 }
