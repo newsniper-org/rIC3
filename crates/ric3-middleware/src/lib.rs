@@ -11,9 +11,11 @@ pub mod capability;
 pub mod spec;
 pub mod lemma;
 pub mod riemann;
+pub mod lebesgue;
 pub mod driver;
 
 pub use capability::EngineCapability;
 pub use riemann::{AcceleratedStep, AcceleratedStepBuilder, AffineCounter, CounterDetector, RiemannEngine};
 pub use driver::MiddlewareDriver;
 pub use lemma::{ContentLemma, ContentLit, ContentLemmaBridge, SurvivalMeter};
+pub use lebesgue::{LebesgueRliveEngine, LexicographicRanking, RankingComponent, RankingSynthesizer, StrictDecreaseBuilder};

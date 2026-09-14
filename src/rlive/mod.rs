@@ -148,9 +148,8 @@ impl Rlive {
         let bvc = rts.rel.new_imply(!base_var.lit(), rts.bad[0]);
         rts.constraint.push(bvc);
         rts.bad = LitVec::from(rts.rel.new_and([rts.bad[0], base_var.lit()]));
-        let rcfg =
-            EngineConfig::parse_from("ic3 --no-pred-prop --full-bad --no-preproc".split(' '));
-        let rcfg = rcfg.into_ic3().unwrap();
+        let mut rcfg = IC3Config::default();
+        rcfg.preproc.preproc = false;
         Self {
             cfg,
             ts,
