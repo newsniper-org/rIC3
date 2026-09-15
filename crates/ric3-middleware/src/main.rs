@@ -26,6 +26,14 @@ struct Cli {
     /// Random seed
     #[arg(long, default_value_t = 0)]
     rseed: u64,
+
+    /// dynamic generalization
+    #[arg(long = "dynamic", default_value_t = false)]
+    dynamic: bool,
+
+    /// drop proof obligation
+    #[arg(long = "drop-po", action = clap::ArgAction::Set, default_value_t = true)]
+    drop_po: bool,
 }
 
 fn main() -> Result<()> {
@@ -46,6 +54,8 @@ fn main() -> Result<()> {
 
     let mut ic3_cfg = IC3Config::default();
     ic3_cfg.rseed = cli.rseed;
+    ic3_cfg.dynamic = cli.dynamic;
+    ic3_cfg.drop_po = cli.drop_po;
     let cfg = EngineConfig::IC3(ic3_cfg);
 
     let mut engine = if cli.no_riemann {
