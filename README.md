@@ -16,7 +16,7 @@
 |---|---|---|---|
 | **Stage 1** | **Infrastructure & Cache** | AdHash Method/Digest Cache layer (`portable-algebraic-aotjit`), clean middleware split (`ric3-middleware`) | **Complete** (≥ 7,000× speedup on hits, <1% cold overhead) |
 | **Stage 2** | **Non-Uniform Step Size ("Riemann")** | Variable-length accelerated jump transitions ($T^{2^m}$ and macro-cascades) for deep counters/timers | **Complete** (Up to 1.81× acceleration, 0 regressions) |
-| **Stage 3** | **Non-Uniform Partition ("Lebesgue")** | Well-founded lexicographic ranking function induction for liveness without $2\times\|L\|$ shadow state doubling | **Complete** (Verified across 653 HWMCC justice models) |
+| **Stage 3** | **Non-Uniform Partition ("Lebesgue")** | Well-founded lexicographic ranking function induction for liveness without $2\times\|L\|$ shadow state doubling | **Complete** (Verified ranking synthesis & soundness) |
 | **Stage 4** | **Parallelism & Acceleration** | 256-bit SIMD BCP watcher scanning, adaptive portfolio lemma router, dynamic multi-backend GPU tier | **Complete** (1.77× on 16-thread portfolio, dlopen Vulkan/CUDA/ROCm) |
 
 ---

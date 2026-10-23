@@ -32,7 +32,7 @@ Stage 3 introduces the **Lebesgue Non-Uniform Partition Basis** into rIC3:
 
 ## 3. Empirical Verification on HWMCC Liveness Suite
 
-Evaluated across HWMCC justice benchmarks (AIGER models with $J \ge 1$):
+Out of 653 HWMCC justice instances indexed in the benchmark corpus, representative benchmarks spanning various latch configurations were evaluated for ranking synthesis and non-vacuous soundness:
 
 | Benchmark Model | Latch Count | Justice Count | Synthesized Measures | Ranking Well-Foundedness | L2S State Doubling Avoided |
 |---|---|---|---|---|---|
