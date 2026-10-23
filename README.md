@@ -24,16 +24,23 @@
 ## Key Features & Innovations
 
 ### 1. Method/Digest Invariant Cache (Stage 1)
-- **Zero derivation re-checking:** An inductive invariant satisfies $I \Rightarrow \mathit{Inv}$, $\mathit{Inv} \land T \Rightarrow \mathit{Inv}'$, and $\mathit{Inv} \Rightarrow P$. Re-checking is instantaneous.
+Powered by [`portable-algebraic-aotjit`](https://codeberg.org/newsniper-org/portable-algebraic-aotjit) ([`docs/adhash.md`](https://codeberg.org/newsniper-org/portable-algebraic-aotjit/src/branch/main/docs/adhash.md)):
+
+- **Exact Multiset Homomorphism (AdHash):**  
+  The cache operates over an exact multiset homomorphism on canonical clause sets:
+  $$\texttt{combine\_fold}(\mathrm{fold}(A), \mathrm{fold}(B)) = \mathrm{fold}(A \uplus B)$$
+  $$\big( S_A + S_B \pmod{2^{256}}, \ N_A + N_B \big) = \mathrm{fold}(A \uplus B)$$
+  This allows the stable transition relation $T \uplus \text{constraints}$ to be folded once into an accumulator ($O(|T|)$), and per-query deltas $\neg P$ to be folded incrementally in $O(|\Delta|)$.
+- **Content-Derived Atom Identity:** Clauses are normalized by canonical atom strings (`(name, polarity)`), completely independent of shifting CNF variable or AIG node indices.
+- **32-Byte Cryptographic Collapse:** Folds are collapsed into fixed-width 32-byte certificates via KangarooTwelve (K12-256): $\text{Digest}(S, N) = \text{K12}(S_{256} \mathbin{\Vert} \text{u64\_le}(N))$.
 - **Two distinct typed licences:**
   - `VerdictLicence`: Whole-formula digest ($T \uplus \text{constraints} \uplus \neg P$) matches byte-for-byte $\implies$ **instant return (≥ 7,000× faster, ~3.3ms)**.
-  - `SeedLicence`: Design $T$ matches while property differs $\implies$ injects candidate invariant lemmas into IC3 with **100% unconditional soundness**.
+  - `SeedLicence`: Design $T$ matches (`region_key`) while property differs $\implies$ injects stored candidate invariant lemmas into IC3 with **100% unconditional soundness**.
 - **CLI Flags:**
   ```bash
   ric3 check <MODEL> ic3 --cache-dir /path/to/cache
   ric3 check <MODEL> ic3 --no-cache
   ```
-
 ### 2. Riemann Variable-Step Accelerated Engine (Stage 2)
 - Automatically isolates affine counters ($x' = x + c \pmod{2^w}$) via **triangular dependency cone static analysis** in sub-100ms without needing frontend symbol names.
 - Synthesizes power-of-two accelerated jump relations ($T^{2^m}$) in $O(w - m)$ clauses, avoiding explicit cycle unrollings.
