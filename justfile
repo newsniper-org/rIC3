@@ -12,22 +12,22 @@ init-workspace:
     mkdir -p .local-mentions-by
     # 루트 디렉터리의 Python 3.14 환경 의존성 동기화
     uv sync --python 3.14
-    podman build --no-cache -t omp-memory-daemon -f .omp/server/Dockerfile .omp/server/
+    ~/run-podman-on-ssd.sh build --no-cache -t ric3-memory-daemon -f .omp/server/Dockerfile .omp/server/
     @echo "데이터베이스 준비, IPC 디렉터리 세팅 및 uv 환경 구축이 완료되었습니다."
 
 # 2. 데몬 컨테이너 실행 (NVIDIA GPU 리소스 패스스루 포함)
 run-daemon:
-    podman run -d --name memory-daemon \
+    ~/run-podman-on-ssd.sh run -d --name ric3-memory-daemon \
         --network host \
         --device nvidia.com/gpu=all \
         -p 8000:8000 \
         -v $(pwd)/.omp/data:/app/data \
-        omp-memory-daemon
+        ric3-memory-daemon
 
 # 3. 데몬 컨테이너 중지 및 삭제 (오류 방지를 위해 실패 시 무시)
 stop-daemon:
-    podman stop memory-daemon || true
-    podman rm memory-daemon || true
+    ~/run-podman-on-ssd.sh stop ric3-memory-daemon || true
+    ~/run-podman-on-ssd.sh rm ric3-memory-daemon || true
 
 # 4. 기본 모델로 에이전트 시작
 start OMP_CONFIG_FILE=".omp/workspace.yml":
