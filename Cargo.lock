@@ -1825,7 +1825,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 [[package]]
 name = "portable-algebraic-aotjit"
 version = "1.0.0-rc.39"
-source = "git+https://codeberg.org/newsniper-org/portable-algebraic-aotjit?rev=30e9f22a1636a62429c5f9dad324c786cc1e9d22#30e9f22a1636a62429c5f9dad324c786cc1e9d22"
+source = "git+https://codeberg.org/newsniper-org/portable-algebraic-aotjit?rev=eb9fb2935394c28a1100276002ab1a68601d9e18#eb9fb2935394c28a1100276002ab1a68601d9e18"
 dependencies = [
  "tiny-keccak",
 ]

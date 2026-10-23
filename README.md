@@ -24,7 +24,7 @@
 ## Key Features & Innovations
 
 ### 1. Method/Digest Invariant Cache (Stage 1)
-Powered by [`portable-algebraic-aotjit`](https://codeberg.org/newsniper-org/portable-algebraic-aotjit) ([`docs/adhash.md`](https://codeberg.org/newsniper-org/portable-algebraic-aotjit/src/commit/3c394304aeff4a5e822dd942cfb69f5774398ea5/docs/adhash.md)):
+Powered by [`portable-algebraic-aotjit`](https://codeberg.org/newsniper-org/portable-algebraic-aotjit) ([`docs/adhash.md`](https://codeberg.org/newsniper-org/portable-algebraic-aotjit/src/commit/eb9fb2935394c28a1100276002ab1a68601d9e18/docs/adhash.md)):
 
 - **Exact Multiset Homomorphism (AdHash):**  
   The cache operates over an exact multiset homomorphism on canonical clause sets:

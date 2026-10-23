@@ -64,7 +64,7 @@ tokio = { version = "1.52.3", features = [
 ] }
 nalgebra = "0.35.0"
 memory-stats = "1.2.0"
-portable-algebraic-aotjit = { git = "https://codeberg.org/newsniper-org/portable-algebraic-aotjit", rev = "30e9f22a1636a62429c5f9dad324c786cc1e9d22", optional = true }
+portable-algebraic-aotjit = { git = "https://codeberg.org/newsniper-org/portable-algebraic-aotjit", rev = "eb9fb2935394c28a1100276002ab1a68601d9e18", optional = true }
 bincode = { version = "1.3", optional = true }
 [profile.release]
 lto = true
